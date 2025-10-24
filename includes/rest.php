@@ -191,11 +191,12 @@ function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp) {
     if (is_array($cached)) {
         return $cached;
     }
-    $url = add_query_arg([
+    $query_args = [
         'location'  => $lat . ',' . $lng,
         'timestamp' => $timestamp,
         'key'       => $api_key,
-    ], 'https://maps.googleapis.com/maps/api/timezone/json');
+    ];
+    $url = add_query_arg($query_args, 'https://maps.googleapis.com/maps/api/timezone/json');
     $resp = wp_remote_get($url, ['timeout' => 15]);
     if (is_wp_error($resp)) {
         return new WP_Error('remote_error', $resp->get_error_message(), ['status' => 502]);
@@ -209,7 +210,20 @@ function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp) {
         return new WP_Error('remote_error', 'Invalid Google Timezone API response.', ['status' => 502]);
     }
     if (($body['status'] ?? '') !== 'OK') {
-        return new WP_Error('timezone_error', 'Timezone lookup failed: ' . ($body['status'] ?? 'UNKNOWN'), ['status' => 502]);
+        $log_args = $query_args;
+        unset($log_args['key']);
+        error_log('[bo-city-personality] Timezone API response ' . wp_json_encode([
+            'request'  => $log_args,
+            'response' => $body,
+        ]));
+        return new WP_Error(
+            'timezone_error',
+            'Timezone lookup failed: ' . ($body['status'] ?? 'UNKNOWN'),
+            [
+                'status'       => 502,
+                'api_response' => $body,
+            ]
+        );
     }
     set_transient($cache_name, $body, HOUR_IN_SECONDS * 6);
     return $body;
