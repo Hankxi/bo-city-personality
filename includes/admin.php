@@ -124,6 +124,7 @@ function bo_cp_render_persona_box(WP_Post $post): void {
             'textarea_name' => 'bo_cp_locales[' . $safe_lang . '][overview]',
             'textarea_rows' => 8,
             'media_buttons' => true,
+            'editor_class'  => 'bo-cp-wpeditor',
         ));
         echo '</p>';
 
@@ -145,6 +146,7 @@ function bo_cp_render_persona_box(WP_Post $post): void {
                 'media_buttons' => true,
                 'tinymce'       => true,
                 'quicktags'     => true,
+                'editor_class'  => 'bo-cp-wpeditor',
             ));
             echo '</p>';
             echo '<p><button type="button" class="button link-delete bo-cp-remove-section">Remove section</button></p>';
@@ -219,6 +221,14 @@ function bo_cp_render_persona_box(WP_Post $post): void {
         if (textarea.dataset.editorInitialized === '1') {
             return;
         }
+        if (window.tinyMCE && window.tinyMCE.get(editorId)) {
+            textarea.dataset.editorInitialized = '1';
+            return;
+        }
+        if (window.QTags && window.QTags.getInstance && window.QTags.getInstance(editorId)) {
+            textarea.dataset.editorInitialized = '1';
+            return;
+        }
         var settings = { mediaButtons: true };
         var baseId = 'bo_cp_overview_' + lang;
         if (window.tinyMCEPreInit && window.tinyMCEPreInit.mceInit && window.tinyMCEPreInit.mceInit[baseId]) {
@@ -270,6 +280,19 @@ function bo_cp_render_persona_box(WP_Post $post): void {
             }
         }
     });
+    function bootstrapEditors(){
+        document.querySelectorAll('.bo-cp-sections').forEach(function(container){
+            var lang = container.getAttribute('data-lang');
+            container.querySelectorAll('.bo-cp-section-row').forEach(function(row){
+                initEditor(row, lang);
+            });
+        });
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootstrapEditors);
+    } else {
+        bootstrapEditors();
+    }
 })();
 JS;
         echo '</script>';

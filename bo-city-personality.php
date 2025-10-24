@@ -41,6 +41,9 @@ add_action('init', function() {
 register_activation_hook(__FILE__, function(){
     // Flush rewrite for REST and CPTs
     bo_cp_register_cpts();
+    if (function_exists('bo_cp_ensure_results_table')) {
+        bo_cp_ensure_results_table();
+    }
     flush_rewrite_rules();
 });
 

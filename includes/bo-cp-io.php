@@ -88,6 +88,36 @@ function bo_cp_read_persona_file(string $key): array {
     ];
 }
 
+function bo_cp_persona_display_title(string $key, string $lang = 'en'): string {
+    $lang = strtolower($lang);
+    $data = bo_cp_read_persona_file($key);
+    if (!empty($data['displayTitle']) && is_array($data['displayTitle'])) {
+        if (!empty($data['displayTitle'][$lang])) {
+            return (string) $data['displayTitle'][$lang];
+        }
+        if (!empty($data['displayTitle']['en'])) {
+            return (string) $data['displayTitle']['en'];
+        }
+        $first = reset($data['displayTitle']);
+        if (is_string($first) && $first !== '') {
+            return $first;
+        }
+    }
+
+    if (!empty($data['locales']) && is_array($data['locales'])) {
+        if (!empty($data['locales'][$lang]['displayTitle'])) {
+            return (string) $data['locales'][$lang]['displayTitle'];
+        }
+        if (!empty($data['locales']['en']['displayTitle'])) {
+            return (string) $data['locales']['en']['displayTitle'];
+        }
+    }
+
+    return function_exists('bo_cp_display_title_from_key')
+        ? bo_cp_display_title_from_key($key)
+        : $key;
+}
+
 /**
  * Write (or update) unified multi-language persona file.
  * - $key canonicalized internally

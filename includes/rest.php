@@ -1,17 +1,19 @@
 <?php
-// includes/rest.php (replacement)
-// REST endpoints for fetching sections from unified files (with fallback to CPT).
+// includes/rest.php
+// REST endpoints for persona data, geo computation, and section retrieval.
 
 if ( ! defined('ABSPATH') ) { exit; }
 
 require_once __DIR__ . '/bo-cp-io.php';
+require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/algorithm.php';
 
 /** Utility: send caching headers and possibly 304 */
 function bo_cp_send_cache_headers(string $persona_key) {
     $meta = bo_cp_persona_http_meta($persona_key);
     header('ETag: ' . $meta['etag']);
     header('Last-Modified: ' . $meta['lastmod']);
-    header('Cache-Control: max-age=300, public'); // 5 min
+    header('Cache-Control: max-age=300, public');
 
     $inm = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
     $ims = $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '';
@@ -19,6 +21,279 @@ function bo_cp_send_cache_headers(string $persona_key) {
         status_header(304);
         exit;
     }
+}
+
+function bo_cp_google_places_request(string $endpoint, array $params, string $cache_key) {
+    $api_key = defined('GMP_SERVER_PLACES_API_KEY') ? GMP_SERVER_PLACES_API_KEY : '';
+    if (!$api_key) {
+        return new WP_Error('config_error', 'Google Places API key not configured.', ['status' => 500]);
+    }
+    $cache_name = 'bo_cp_places_' . md5($cache_key);
+    $cached = get_transient($cache_name);
+    if (is_array($cached)) {
+        return $cached;
+    }
+    $params['key'] = $api_key;
+    $url = add_query_arg($params, 'https://maps.googleapis.com/maps/api/place/' . $endpoint . '/json');
+    $resp = wp_remote_get($url, ['timeout' => 15]);
+    if (is_wp_error($resp)) {
+        return new WP_Error('remote_error', $resp->get_error_message(), ['status' => 502]);
+    }
+    $code = wp_remote_retrieve_response_code($resp);
+    if ($code !== 200) {
+        return new WP_Error('remote_error', 'Google Places API HTTP ' . $code, ['status' => 502]);
+    }
+    $body = json_decode(wp_remote_retrieve_body($resp), true);
+    if (!is_array($body)) {
+        return new WP_Error('remote_error', 'Invalid Google Places API response.', ['status' => 502]);
+    }
+    if (($body['status'] ?? '') === 'OK') {
+        set_transient($cache_name, $body, HOUR_IN_SECONDS * 6);
+    }
+    return $body;
+}
+
+function bo_cp_lookup_place(string $city, string $country, string $place_id = '', string $lang = 'en') {
+    $lang = $lang ?: 'en';
+    $query = trim($city . ', ' . $country);
+    if ($place_id === '') {
+        $text = bo_cp_google_places_request('textsearch', [
+            'query'    => $query,
+            'language' => $lang,
+            'type'     => 'locality',
+        ], 'text_' . $lang . '_' . $query);
+        if (is_wp_error($text)) {
+            return $text;
+        }
+        if (($text['status'] ?? '') !== 'OK' || empty($text['results'])) {
+            return new WP_Error('place_not_found', 'Unable to resolve the provided city.', ['status' => 404]);
+        }
+        $place_id = $text['results'][0]['place_id'] ?? '';
+        if ($place_id === '') {
+            return new WP_Error('place_not_found', 'No matching place_id returned.', ['status' => 404]);
+        }
+    }
+
+    $details = bo_cp_google_places_request('details', [
+        'place_id' => $place_id,
+        'language' => $lang,
+        'fields'   => 'geometry/location,address_component,name,formatted_address,place_id',
+    ], 'details_' . $lang . '_' . $place_id);
+    if (is_wp_error($details)) {
+        return $details;
+    }
+    if (($details['status'] ?? '') !== 'OK' || empty($details['result']['geometry']['location'])) {
+        return new WP_Error('place_not_found', 'Place details lookup failed.', ['status' => 404]);
+    }
+
+    $result = $details['result'];
+    $loc = $result['geometry']['location'];
+    $components = $result['address_components'] ?? [];
+    $parsedCountry = $country;
+    $parsedCity = $city;
+    foreach ($components as $comp) {
+        $types = $comp['types'] ?? [];
+        if (in_array('country', $types, true)) {
+            $parsedCountry = $comp['long_name'];
+        }
+        if (!$parsedCity && (in_array('locality', $types, true) || in_array('administrative_area_level_1', $types, true) || in_array('administrative_area_level_2', $types, true))) {
+            $parsedCity = $comp['long_name'];
+        }
+    }
+
+    return [
+        'place_id'          => $result['place_id'] ?? $place_id,
+        'lat'               => (float) ($loc['lat'] ?? 0),
+        'lng'               => (float) ($loc['lng'] ?? 0),
+        'country'           => $parsedCountry,
+        'city'              => $parsedCity,
+        'name'              => $result['name'] ?? '',
+        'formatted_address' => $result['formatted_address'] ?? '',
+    ];
+}
+
+function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp) {
+    $api_key = defined('GMP_SERVER_PLACES_API_KEY') ? GMP_SERVER_PLACES_API_KEY : '';
+    if (!$api_key) {
+        return new WP_Error('config_error', 'Google API key not configured.', ['status' => 500]);
+    }
+    $cache_name = 'bo_cp_tz_' . md5($lat . '|' . $lng . '|' . $timestamp);
+    $cached = get_transient($cache_name);
+    if (is_array($cached)) {
+        return $cached;
+    }
+    $url = add_query_arg([
+        'location'  => $lat . ',' . $lng,
+        'timestamp' => $timestamp,
+        'key'       => $api_key,
+    ], 'https://maps.googleapis.com/maps/api/timezone/json');
+    $resp = wp_remote_get($url, ['timeout' => 15]);
+    if (is_wp_error($resp)) {
+        return new WP_Error('remote_error', $resp->get_error_message(), ['status' => 502]);
+    }
+    $code = wp_remote_retrieve_response_code($resp);
+    if ($code !== 200) {
+        return new WP_Error('remote_error', 'Google Timezone API HTTP ' . $code, ['status' => 502]);
+    }
+    $body = json_decode(wp_remote_retrieve_body($resp), true);
+    if (!is_array($body)) {
+        return new WP_Error('remote_error', 'Invalid Google Timezone API response.', ['status' => 502]);
+    }
+    if (($body['status'] ?? '') !== 'OK') {
+        return new WP_Error('timezone_error', 'Timezone lookup failed: ' . ($body['status'] ?? 'UNKNOWN'), ['status' => 502]);
+    }
+    set_transient($cache_name, $body, HOUR_IN_SECONDS * 6);
+    return $body;
+}
+
+function bo_cp_rest_geo_callback(WP_REST_Request $req) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    if (bo_cp_rate_limited('geo_' . $ip, 30, 60)) {
+        return new WP_Error('rate_limited', 'Too many requests.', ['status' => 429]);
+    }
+
+    $city       = sanitize_text_field($req->get_param('city'));
+    $country    = sanitize_text_field($req->get_param('country'));
+    $birth_date = sanitize_text_field($req->get_param('birth_date'));
+    $hour_slot  = sanitize_text_field($req->get_param('hour_slot'));
+    $lang       = sanitize_key($req->get_param('lang') ?: 'en');
+    $email      = sanitize_email($req->get_param('email'));
+    $person     = sanitize_text_field($req->get_param('person_name'));
+    $gender     = sanitize_text_field($req->get_param('gender'));
+    $place_id   = sanitize_text_field($req->get_param('place_id'));
+
+    if ($city === '' || $country === '' || $birth_date === '') {
+        return new WP_Error('bad_request', 'city, country and birth_date are required.', ['status' => 400]);
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $birth_date)) {
+        return new WP_Error('bad_request', 'birth_date must be YYYY-MM-DD.', ['status' => 400]);
+    }
+
+    $supported_langs = function_exists('bo_cp_persona_supported_languages') ? bo_cp_persona_supported_languages() : ['en' => 'English'];
+    if (!isset($supported_langs[$lang])) {
+        $lang = 'en';
+    }
+
+    $place = bo_cp_lookup_place($city, $country, $place_id, $lang);
+    if (is_wp_error($place)) {
+        return $place;
+    }
+    $lat = (float) $place['lat'];
+    $lng = (float) $place['lng'];
+
+    $parts = explode('-', $birth_date);
+    $timestamp = gmmktime(12, 0, 0, intval($parts[1]), intval($parts[2]), intval($parts[0]));
+    $tz = bo_cp_lookup_timezone($lat, $lng, $timestamp);
+    if (is_wp_error($tz)) {
+        return $tz;
+    }
+
+    $hour = bo_cp_parse_hour_slot($hour_slot);
+    $tz_id = (string) ($tz['timeZoneId'] ?? 'UTC');
+    $raw_off = intval($tz['rawOffset'] ?? 0);
+    $dst_off = intval($tz['dstOffset'] ?? 0);
+
+    $persona_key = bo_cp_canon_key(Lolo_Algorithm::calculate_persona($lat, $lng, $birth_date, $tz_id, $raw_off, $dst_off, $hour));
+    $display_title = bo_cp_persona_display_title($persona_key, $lang);
+    $sections = bo_cp_load_sections($persona_key, $lang);
+    $overview = $sections['overview'] ?? ['title' => '', 'content' => ''];
+
+    $result_id = bo_cp_store_result([
+        'persona_key' => $persona_key,
+        'lang'        => $lang,
+        'country'     => $place['country'],
+        'city'        => $place['city'],
+        'birth_date'  => $birth_date,
+        'hour_slot'   => $hour_slot,
+        'lat'         => $lat,
+        'lng'         => $lng,
+        'tz_id'       => $tz_id,
+        'raw_offset'  => $raw_off,
+        'dst_offset'  => $dst_off,
+        'email'       => $email,
+        'person_name' => $person,
+        'gender'      => $gender,
+        'ip'          => $ip,
+        'user_agent'  => isset($_SERVER['HTTP_USER_AGENT']) ? substr((string) $_SERVER['HTTP_USER_AGENT'], 0, 500) : '',
+    ], [
+        'requested_city'    => $city,
+        'requested_country' => $country,
+        'place_id'          => $place['place_id'],
+        'place_name'        => $place['name'],
+        'formatted_address' => $place['formatted_address'],
+        'timezone_raw'      => $tz,
+    ]);
+
+    if ($result_id <= 0) {
+        return new WP_Error('server_error', 'Failed to record result.', ['status' => 500]);
+    }
+
+    $token = bo_cp_sign_token($result_id, $persona_key);
+
+    return [
+        'result_id'      => $result_id,
+        'token'          => $token,
+        'persona_key'    => $persona_key,
+        'name'           => $persona_key,
+        'display_title'  => $display_title,
+        'lang'           => $lang,
+        'overview_title' => (string) ($overview['title'] ?? ''),
+        'overview_html'  => (string) ($overview['content'] ?? ''),
+        'sections'       => array_keys($sections),
+        'place'          => $place,
+    ];
+}
+
+function bo_cp_rest_result_callback(WP_REST_Request $req) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    if (bo_cp_rate_limited('result_' . $ip, 120, 60)) {
+        return new WP_Error('rate_limited', 'Too many requests.', ['status' => 429]);
+    }
+
+    $result_id = intval($req->get_param('result_id'));
+    $persona   = sanitize_key($req->get_param('name'));
+    $token     = (string) $req->get_param('token');
+    $section   = sanitize_key($req->get_param('section') ?: 'overview');
+
+    if ($result_id <= 0 || $persona === '' || $token === '') {
+        return new WP_Error('bad_request', 'result_id, name, token are required.', ['status' => 400]);
+    }
+
+    $verified = bo_cp_verify_token($token);
+    if (!$verified) {
+        return new WP_Error('invalid_token', 'Token is invalid or expired.', ['status' => 403]);
+    }
+    if (intval($verified['i'] ?? 0) !== $result_id) {
+        return new WP_Error('invalid_token', 'Token does not match result.', ['status' => 403]);
+    }
+    if (bo_cp_canon_key($verified['p'] ?? '') !== $persona) {
+        return new WP_Error('invalid_token', 'Token persona mismatch.', ['status' => 403]);
+    }
+
+    $row = bo_cp_get_result($result_id);
+    if (!$row) {
+        return new WP_Error('not_found', 'Result not found.', ['status' => 404]);
+    }
+
+    $lang = $row['lang'] ?: 'en';
+    $sections = bo_cp_load_sections($persona, $lang);
+    if (!isset($sections[$section])) {
+        if ($section === 'overview') {
+            $sections[$section] = ['title' => '', 'content' => ''];
+        } else {
+            return new WP_Error('not_found', 'Section not found.', ['status' => 404]);
+        }
+    }
+
+    $rowSec = $sections[$section];
+    return [
+        'persona'        => $persona,
+        'display_title'  => bo_cp_persona_display_title($persona, $lang),
+        'lang'           => $lang,
+        'section'        => $section,
+        'title'          => (string) ($rowSec['title'] ?? ''),
+        'html'           => (string) ($rowSec['content'] ?? ''),
+    ];
 }
 
 add_action('rest_api_init', function(){
@@ -59,7 +334,7 @@ add_action('rest_api_init', function(){
         'callback' => function(WP_REST_Request $req){
             $persona = sanitize_key($req->get_param('persona'));
             $lang    = sanitize_text_field($req->get_param('lang') ?: 'en');
-            $keysStr = (string) $req->get_param('keys'); // comma-separated
+            $keysStr = (string) $req->get_param('keys');
             $keys = array_filter(array_map('sanitize_key', array_map('trim', explode(',', $keysStr))));
 
             if (!$persona) {
@@ -94,5 +369,28 @@ add_action('rest_api_init', function(){
             'lang'    => ['required'=>false],
             'keys'    => ['required'=>false],
         ]
+    ]);
+
+    register_rest_route('bo/v1', '/geo', [
+        'methods'  => 'GET',
+        'callback' => 'bo_cp_rest_geo_callback',
+        'permission_callback' => '__return_true',
+        'args' => [
+            'city'       => ['required' => true],
+            'country'    => ['required' => true],
+            'birth_date' => ['required' => true],
+        ],
+    ]);
+
+    register_rest_route('bo/v1', '/result', [
+        'methods'  => 'GET',
+        'callback' => 'bo_cp_rest_result_callback',
+        'permission_callback' => '__return_true',
+        'args' => [
+            'result_id' => ['required' => true],
+            'name'      => ['required' => true],
+            'token'     => ['required' => true],
+            'section'   => ['required' => false],
+        ],
     ]);
 });
