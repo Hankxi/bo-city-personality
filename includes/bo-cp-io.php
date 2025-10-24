@@ -24,6 +24,22 @@ function bo_cp_persona_file_path(string $key): string {
     return bo_cp_persona_data_dir() . $key . '.php';
 }
 
+function bo_cp_find_persona_post_id(string $persona_key): int {
+    $persona_key = bo_cp_canon_key($persona_key);
+    $q = new WP_Query(array(
+        'post_type'      => 'city_persona',
+        'post_status'    => array('publish','draft','pending','private'),
+        'posts_per_page' => 1,
+        'meta_query'     => array(array('key' => 'persona_key', 'value' => $persona_key, 'compare' => '=')),
+        'fields'         => 'ids',
+        'no_found_rows'  => true,
+    ));
+    if (!empty($q->posts)) {
+        return intval($q->posts[0]);
+    }
+    return 0;
+}
+
 /** Read unified multi-language persona file; return array or default shell */
 function bo_cp_read_persona_file(string $key): array {
     $file = bo_cp_persona_file_path($key);
@@ -46,31 +62,48 @@ function bo_cp_read_persona_file(string $key): array {
  * - atomic write via temp + rename
  * - optimistic concurrency via $expectedVersion (optional)
  */
-function bo_cp_write_persona_file(string $key, string $lang, string $displayTitleLang, array $sections, ?int $expectedVersion = null): bool {
+function bo_cp_write_persona_dataset(string $key, array $locales, ?int $expectedVersion = null): bool {
     $key  = bo_cp_canon_key($key);
-    $lang = preg_match('/^[a-z_\\-]{2,10}$/i', $lang) ? $lang : 'en';
 
     $data = bo_cp_read_persona_file($key);
     if ($expectedVersion !== null && isset($data['version']) && intval($data['version']) !== intval($expectedVersion)) {
         return false;
     }
 
-    // normalize sections
-    $norm = [];
-    foreach ($sections as $k => $row) {
-        $k = bo_cp_canon_key((string)$k);
-        $title = isset($row['title']) ? (string)$row['title'] : '';
-        $content = isset($row['content']) ? (string)$row['content'] : '';
-        $norm[$k] = ['title' => $title, 'content' => $content];
+    $display = [];
+    $normalizedLocales = [];
+    foreach ($locales as $lang => $locale) {
+        $langKey = is_string($lang) ? strtolower($lang) : '';
+        if (!preg_match('/^[a-z_\\-]{2,10}$/', $langKey)) {
+            continue;
+        }
+
+        $display[$langKey] = (string)($locale['displayTitle'] ?? '');
+
+        $sections = [];
+        if (isset($locale['sections']) && is_array($locale['sections'])) {
+            foreach ($locale['sections'] as $secKey => $secVal) {
+                $canonKey = ($secKey === 'overview') ? 'overview' : bo_cp_canon_key((string)$secKey);
+                if ($canonKey === '') {
+                    continue;
+                }
+                $title = isset($secVal['title']) ? (string)$secVal['title'] : '';
+                $content = isset($secVal['content']) ? (string)$secVal['content'] : '';
+                $sections[$canonKey] = ['title' => $title, 'content' => $content];
+            }
+        }
+        if (!isset($sections['overview'])) {
+            $sections['overview'] = ['title' => '', 'content' => ''];
+        }
+        $normalizedLocales[$langKey] = ['sections' => $sections];
     }
 
     $data['name'] = $key;
-    if (!isset($data['displayTitle']) || !is_array($data['displayTitle'])) $data['displayTitle'] = [];
-    $data['displayTitle'][$lang] = $displayTitleLang;
-
-    if (!isset($data['locales']) || !is_array($data['locales'])) $data['locales'] = [];
-    if (!isset($data['locales'][$lang]) || !is_array($data['locales'][$lang])) $data['locales'][$lang] = [];
-    $data['locales'][$lang]['sections'] = $norm;
+    $data['displayTitle'] = $display;
+    $data['locales'] = [];
+    foreach ($normalizedLocales as $langKey => $localeRow) {
+        $data['locales'][$langKey] = $localeRow;
+    }
     $data['version'] = intval($data['version'] ?? 0) + 1;
 
     $export = var_export($data, true);
@@ -123,35 +156,31 @@ function bo_cp_load_sections(string $key, string $lang): array {
         return $sections;
     }
 
-    // Fallback to CPT
+    // Fallback to CPT meta
     $sections = [];
-    $parent = get_page_by_title($key, OBJECT, 'city_persona');
-    if ($parent instanceof WP_Post) {
-        $children = get_children([
-            'post_parent' => $parent->ID,
-            'post_type'   => 'city_persona',
-            'post_status' => 'any',
-            'numberposts' => -1,
-        ]);
-        foreach ($children as $cid => $cp) {
-            $cl = get_post_meta($cid,'lang',true);
-            if ($cl === $lang) {
-                $overview = get_post_field('post_content', $cid);
-                $sections['overview'] = ['title'=>'', 'content'=>$overview];
-                $meta = get_post_meta($cid,'sections_single',true);
-                if (is_array($meta)) {
-                    foreach ($meta as $row){
-                        $k = bo_cp_canon_key($row['key'] ?? '');
-                        if (!$k) continue;
-                        $sections[$k] = [
-                            'title'   => (string)($row['title'] ?? ''),
-                            'content' => (string)($row['content'] ?? ''),
-                        ];
-                    }
+    $post_id = bo_cp_find_persona_post_id($key);
+    if (!$post_id) {
+        $post = get_page_by_title($key, OBJECT, 'city_persona');
+        if ($post instanceof WP_Post) {
+            $post_id = intval($post->ID);
+        }
+    }
+    if ($post_id) {
+        $locales = get_post_meta($post_id, 'locales', true);
+        if (isset($locales[$lang]['sections']) && is_array($locales[$lang]['sections'])) {
+            foreach ($locales[$lang]['sections'] as $secKey => $row) {
+                $canonKey = ($secKey === 'overview') ? 'overview' : bo_cp_canon_key((string)$secKey);
+                if ($canonKey === '') {
+                    continue;
                 }
-                break;
+                $title = isset($row['title']) ? (string)$row['title'] : '';
+                $content = isset($row['content']) ? (string)$row['content'] : '';
+                $sections[$canonKey] = ['title' => $title, 'content' => $content];
             }
         }
+    }
+    if (!isset($sections['overview'])) {
+        $sections['overview'] = ['title' => '', 'content' => ''];
     }
     return $sections;
 }

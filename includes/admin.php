@@ -1,141 +1,227 @@
 <?php
 if ( ! defined('ABSPATH') ) { exit; }
 
-/**
- * Admin (City Persona) — unified multi-language + canonical keys
- */
+require_once __DIR__ . '/bo-cp-io.php';
+
+function bo_cp_persona_supported_languages(): array {
+    return array(
+        'en' => 'English',
+        'zh' => 'Chinese',
+    );
+}
+
+function bo_cp_get_persona_locales(int $post_id): array {
+    $data = get_post_meta($post_id, 'locales', true);
+    if (!is_array($data)) {
+        $data = array();
+    }
+    foreach (bo_cp_persona_supported_languages() as $lang => $label) {
+        if (!isset($data[$lang]) || !is_array($data[$lang])) {
+            $data[$lang] = array();
+        }
+        if (!isset($data[$lang]['displayTitle'])) {
+            $data[$lang]['displayTitle'] = '';
+        }
+        if (!isset($data[$lang]['sections']) || !is_array($data[$lang]['sections'])) {
+            $data[$lang]['sections'] = array();
+        }
+        if (!isset($data[$lang]['sections']['overview']) || !is_array($data[$lang]['sections']['overview'])) {
+            $data[$lang]['sections']['overview'] = array('title' => '', 'content' => '');
+        } else {
+            if (!isset($data[$lang]['sections']['overview']['title'])) {
+                $data[$lang]['sections']['overview']['title'] = '';
+            }
+            if (!isset($data[$lang]['sections']['overview']['content'])) {
+                $data[$lang]['sections']['overview']['content'] = '';
+            }
+        }
+    }
+    return $data;
+}
+
+function bo_cp_normalize_locale_submission(string $lang, array $input): array {
+    $displayTitle = sanitize_text_field($input['displayTitle'] ?? '');
+    $overview = wp_kses_post($input['overview'] ?? '');
+
+    $sections = array();
+    $sections['overview'] = array('title' => '', 'content' => $overview);
+
+    if (!empty($input['sections']) && is_array($input['sections'])) {
+        foreach ($input['sections'] as $row) {
+            $key_raw = isset($row['key']) ? (string)$row['key'] : '';
+            $key = $key_raw === 'overview' ? 'overview' : bo_cp_canon_key($key_raw);
+            if ($key === 'overview') {
+                continue;
+            }
+            $title = sanitize_text_field($row['title'] ?? '');
+            $content = wp_kses_post($row['content'] ?? '');
+            if ($key === '' && $title === '' && $content === '') {
+                continue;
+            }
+            $sections[$key] = array(
+                'title'   => $title,
+                'content' => $content,
+            );
+        }
+    }
+
+    return array(
+        'displayTitle' => $displayTitle,
+        'sections'     => $sections,
+    );
+}
 
 add_action('add_meta_boxes', function () {
-    add_meta_box('bo_cp_meta_key', 'Persona Identity', 'bo_cp_render_meta_key', 'city_persona', 'side', 'high');
-    add_meta_box('bo_cp_sections', 'Sections (Single Language)', 'bo_cp_render_sections_box', 'city_persona', 'normal', 'high');
+    add_meta_box('bo_cp_persona', 'Persona Content', 'bo_cp_render_persona_box', 'city_persona', 'normal', 'high');
 });
 
-function bo_cp_is_child($post){ return intval($post->post_parent) > 0; }
+function bo_cp_render_persona_box(WP_Post $post): void {
+    wp_nonce_field('bo_cp_save', 'bo_cp_nonce');
+    wp_enqueue_editor();
+    wp_enqueue_media();
 
-function bo_cp_render_meta_key(WP_Post $post){
-    wp_nonce_field('bo_cp_save','bo_cp_nonce');
-    $is_child    = bo_cp_is_child($post);
     $persona_key = get_post_meta($post->ID, 'persona_key', true);
-    if ( ! $persona_key ) {
-        $persona_key = $is_child ? get_post_meta($post->post_parent, 'persona_key', true) : get_the_title($post);
+    if (! $persona_key) {
+        $persona_key = bo_cp_canon_key(get_the_title($post));
     }
-    $lang = get_post_meta($post->ID, 'lang', true);
-    if ($lang !== 'zh' && $lang !== 'en') { $lang = $is_child ? 'en' : ''; }
 
-    echo '<p><label>Persona Key</label><br/>';
-    echo '<input type="text" class="widefat" name="bo_cp_persona_key" value="'.esc_attr($persona_key).'" '.($is_child?'':'').'/></p>';
+    $locales = bo_cp_get_persona_locales($post->ID);
+    $languages = bo_cp_persona_supported_languages();
 
-    if ($is_child) {
-        echo '<p><label>Language</label><br/>';
-        echo '<select name="bo_cp_lang" class="widefat">';
-        echo '<option value="en"'.selected($lang,'en',false).'>EN</option>';
-        echo '<option value="zh"'.selected($lang,'zh',false).'>ZH</option>';
-        echo '</select></p>';
-        $sib = bo_cp_find_sibling_by_lang($post, $lang==='en' ? 'zh' : 'en');
-        if ($sib) echo '<p><a class="button" href="'.esc_url(get_edit_post_link($sib)).'">Go to '.strtoupper($lang==='en'?'ZH':'EN').' page</a></p>';
-    } else {
-        echo '<p class="description">This is a <strong>parent</strong> persona (group). Create child pages for EN/ZH under this parent.</p>';
-    }
-}
+    echo '<p><label for="bo_cp_persona_key"><strong>Persona Key</strong></label>';
+    echo '<input type="text" class="widefat" id="bo_cp_persona_key" name="bo_cp_persona_key" value="' . esc_attr($persona_key) . '" />';
+    echo '<span class="description">Unique identifier written back to the PHP data file.</span></p>';
 
-function bo_cp_find_sibling_by_lang($post, $lang){
-    $q = get_children(array(
-        'post_parent' => $post->post_parent,
-        'post_type'   => 'city_persona',
-        'post_status' => 'any',
-        'meta_query'  => array(array('key'=>'lang','value'=>$lang,'compare'=>'='))
-    ));
-    if (empty($q)) return 0;
-    $ids = array_keys($q);
-    foreach ($ids as $id) if ($id != $post->ID) return $id;
-    return 0;
-}
+    foreach ($languages as $lang => $label) {
+        $safe_lang = sanitize_key($lang);
+        $locale = $locales[$lang];
+        $display = $locale['displayTitle'] ?? '';
+        $overview = $locale['sections']['overview']['content'] ?? '';
 
-function bo_cp_render_sections_box(WP_Post $post){
-    $is_child = bo_cp_is_child($post);
-    $sections = get_post_meta($post->ID,'sections_single', true);
-    if (!is_array($sections)) $sections = array();
-    if (!$is_child) {
-        echo '<p class="description">Sections are edited on language child pages (EN/ZH). Use the main editor above for a parent note if needed.</p>';
-        return;
+        $rows = array();
+        foreach ($locale['sections'] as $key => $row) {
+            if ($key === 'overview') {
+                continue;
+            }
+            $rows[] = array(
+                'key'     => $key,
+                'title'   => $row['title'] ?? '',
+                'content' => $row['content'] ?? '',
+            );
+        }
+        if (empty($rows)) {
+            $rows[] = array('key' => '', 'title' => '', 'content' => '');
+        }
+
+        echo '<div class="bo-cp-locale-block" data-lang="' . esc_attr($safe_lang) . '">';
+        echo '<h3>' . esc_html($label) . ' (' . esc_html($safe_lang) . ')</h3>';
+        echo '<p><label><strong>Display Title</strong></label>';
+        echo '<input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][displayTitle]" value="' . esc_attr($display) . '" />';
+        echo '</p>';
+
+        echo '<p><label><strong>Overview</strong></label>';
+        wp_editor($overview, 'bo_cp_overview_' . $safe_lang, array(
+            'textarea_name' => 'bo_cp_locales[' . $safe_lang . '][overview]',
+            'textarea_rows' => 8,
+            'media_buttons' => true,
+        ));
+        echo '</p>';
+
+        echo '<div class="bo-cp-sections" data-lang="' . esc_attr($safe_lang) . '">';
+        $i = 0;
+        foreach ($rows as $row) {
+            $key   = $row['key'];
+            $title = $row['title'];
+            $content = $row['content'];
+            echo '<div class="bo-cp-section-row" data-index="' . esc_attr((string)$i) . '">';
+            echo '<div class="bo-cp-line"><span class="bo-cp-chip">' . esc_html($key !== '' ? $key : ('#' . $i)) . '</span><strong>Section</strong></div>';
+            echo '<p><label>Key</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][' . esc_attr((string)$i) . '][key]" value="' . esc_attr($key) . '" /></p>';
+            echo '<p><label>Title</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][' . esc_attr((string)$i) . '][title]" value="' . esc_attr($title) . '" /></p>';
+            echo '<p><label>Content</label><textarea class="widefat" rows="6" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][' . esc_attr((string)$i) . '][content]">' . esc_textarea($content) . '</textarea></p>';
+            echo '<p><button type="button" class="button link-delete bo-cp-remove-section">Remove section</button></p>';
+            echo '<hr /></div>';
+            $i++;
+        }
+        echo '</div>';
+        echo '<p><button type="button" class="button bo-cp-add-section" data-lang="' . esc_attr($safe_lang) . '">Add section</button></p>';
+        echo '<p class="description">Leave all fields empty to drop a section. Sections use canonical keys when saved.</p>';
+        echo '</div>';
+
+        $template = '<div class="bo-cp-section-row" data-index="__INDEX__">'
+            . '<div class="bo-cp-line"><span class="bo-cp-chip">#__INDEX__</span><strong>Section</strong></div>'
+            . '<p><label>Key</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][__INDEX__][key]" value="" /></p>'
+            . '<p><label>Title</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][__INDEX__][title]" value="" /></p>'
+            . '<p><label>Content</label><textarea class="widefat" rows="6" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][__INDEX__][content]"></textarea></p>'
+            . '<p><button type="button" class="button link-delete bo-cp-remove-section">Remove section</button></p>'
+            . '<hr /></div>';
+        echo '<script type="text/template" id="bo-cp-template-' . esc_attr($safe_lang) . '">' . $template . '</script>';
     }
-    wp_enqueue_editor(); wp_enqueue_media();
-    echo '<p class="description">Overview (of this language) uses the main editor above. Below are other sections for this language.</p>';
-    echo '<div id="bo-cp-sections">';
-    $i=0;
-    foreach ($sections as $row){
-        $key   = esc_attr($row['key'] ?? '');
-        $title = esc_attr($row['title'] ?? '');
-        $html  = $row['content'] ?? '';
-        echo '<div class="bo-cp-row">';
-        echo '<div class="bo-cp-line"><span class="bo-cp-chip">'.esc_html($key?:('#'.$i)).'</span><strong>'.esc_html($title?:'Section').'</strong></div>';
-        echo '<p><label>Key</label><input class="widefat" name="bo_cp_sections['.$i.'][key]" value="'.$key.'" placeholder="career / love / health / relationship ..." /></p>';
-        echo '<p><label>Title</label><input class="widefat" name="bo_cp_sections['.$i.'][title]" value="'.$title.'" /></p>';
-        echo '<p><label>Content</label>';
-        wp_editor($html, 'bo_cp_sections_'.$i.'_html', array('textarea_name'=>'bo_cp_sections['.$i.'][content]','media_buttons'=>true,'editor_height'=>240));
-        echo '</p><hr/></div>';
-        $i++;
+
+    static $printed_assets = false;
+    if (! $printed_assets) {
+        $printed_assets = true;
+        echo '<style>
+.bo-cp-locale-block{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:18px}
+.bo-cp-chip{display:inline-block;padding:2px 8px;border:1px solid #e5e7eb;border-radius:999px;font-size:12px;color:#555;background:#f8fafc}
+.bo-cp-line{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.bo-cp-section-row{background:#f8fafc;border:1px solid #dbe3f0;border-radius:8px;padding:12px;margin-bottom:12px}
+.bo-cp-section-row textarea{font-family:monospace}
+</style>';
+        echo '<script>';
+        echo <<<'JS'
+(function(){
+    function nextIndex(container){
+        var rows = container.querySelectorAll(".bo-cp-section-row");
+        var max = -1;
+        rows.forEach(function(row){
+            var idx = parseInt(row.getAttribute("data-index"), 10);
+            if (!isNaN(idx) && idx > max) { max = idx; }
+        });
+        return max + 1;
     }
-    if ($i===0){
-        echo '<div class="bo-cp-row">';
-        echo '<div class="bo-cp-line"><span class="bo-cp-chip">#0</span><strong>Section</strong></div>';
-        echo '<p><label>Key</label><input class="widefat" name="bo_cp_sections[0][key]" value="" placeholder="career / love / health / relationship ..." /></p>';
-        echo '<p><label>Title</label><input class="widefat" name="bo_cp_sections[0][title]" value="" /></p>';
-        echo '<p><label>Content</label>';
-        wp_editor('', 'bo_cp_sections_0_html', array('textarea_name'=>'bo_cp_sections[0][content]','media_buttons'=>true,'editor_height'=>240));
-        echo '</p><hr/></div>';
+    document.addEventListener("click", function(ev){
+        if (ev.target.classList.contains("bo-cp-add-section")) {
+            ev.preventDefault();
+            var lang = ev.target.getAttribute("data-lang");
+            var container = document.querySelector(".bo-cp-sections[data-lang='" + lang + "']");
+            var tpl = document.getElementById("bo-cp-template-" + lang);
+            if (!container || !tpl) return;
+            var idx = nextIndex(container);
+            var html = tpl.innerHTML.replace(/__INDEX__/g, idx);
+            container.insertAdjacentHTML("beforeend", html);
+        } else if (ev.target.classList.contains("bo-cp-remove-section")) {
+            ev.preventDefault();
+            var row = ev.target.closest(".bo-cp-section-row");
+            if (row) {
+                row.parentNode.removeChild(row);
+            }
+        }
+    });
+})();
+JS;
+        echo '</script>';
     }
-    echo '</div>';
-    echo '<style>.bo-cp-row{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:12px}.bo-cp-line{display:flex;align-items:center;gap:8px;margin-bottom:8px}.bo-cp-chip{display:inline-block;padding:2px 8px;border:1px solid #e5e7eb;border-radius:999px;font-size:12px;color:#555;background:#f8fafc}</style>';
 }
 
 add_action('save_post_city_persona', function($post_id, $post){
-    if ( wp_is_post_autosave($post_id) || wp_is_post_revision($post_id) ) return;
-    if ( ! current_user_can('edit_post', $post_id) ) return;
-    if ( ! isset($_POST['bo_cp_nonce']) || ! wp_verify_nonce($_POST['bo_cp_nonce'], 'bo_cp_save') ) return;
+    if ( wp_is_post_autosave($post_id) || wp_is_post_revision($post_id) ) { return; }
+    if ( ! current_user_can('edit_post', $post_id) ) { return; }
+    if ( ! isset($_POST['bo_cp_nonce']) || ! wp_verify_nonce($_POST['bo_cp_nonce'], 'bo_cp_save') ) { return; }
 
-    // Canonicalize persona key when saving
     $persona_key_raw = $_POST['bo_cp_persona_key'] ?? get_the_title($post_id);
-    if (function_exists('bo_cp_canon_key')) {
-        $persona_key = bo_cp_canon_key($persona_key_raw);
-    } else {
-        $persona_key = sanitize_title($persona_key_raw);
-    }
-    update_post_meta($post_id,'persona_key',$persona_key);
+    $persona_key = bo_cp_canon_key((string) $persona_key_raw);
+    update_post_meta($post_id, 'persona_key', $persona_key);
 
-    if (intval($post->post_parent) > 0) {
-        $lang = sanitize_text_field($_POST['bo_cp_lang'] ?? 'en');
-        if ($lang!=='en' && $lang!=='zh') $lang='en';
-        update_post_meta($post_id,'lang',$lang);
+    $locales_input = isset($_POST['bo_cp_locales']) && is_array($_POST['bo_cp_locales']) ? $_POST['bo_cp_locales'] : array();
+    $locales_meta = array();
 
-        $rows = array();
-        if (isset($_POST['bo_cp_sections']) && is_array($_POST['bo_cp_sections'])) {
-            foreach ($_POST['bo_cp_sections'] as $r){
-                $k = isset($r['key']) ? (function_exists('bo_cp_canon_key') ? bo_cp_canon_key($r['key']) : sanitize_key($r['key'])) : '';
-                $t = sanitize_text_field($r['title'] ?? '');
-                $c = wp_kses_post($r['content'] ?? '');
-                if ($k==='' && $t==='' && $c==='') continue;
-                $rows[] = array('key'=>$k,'title'=>$t,'content'=>$c);
-            }
-        }
-        update_post_meta($post_id,'sections_single',$rows);
-        // write-through handled by bo-cp-write-through.php (priority 20)
+    foreach (bo_cp_persona_supported_languages() as $lang => $label) {
+        $locale_raw = isset($locales_input[$lang]) && is_array($locales_input[$lang]) ? $locales_input[$lang] : array();
+        $locales_meta[$lang] = bo_cp_normalize_locale_submission($lang, $locale_raw);
     }
+
+    update_post_meta($post_id, 'locales', $locales_meta);
 }, 10, 2);
-
-function bo_cp_collect_sections_for_lang($post_id){
-    $sections = array();
-    $overview = get_post_field('post_content', $post_id);
-    $sections['overview'] = array('title'=>'', 'content'=> $overview);
-    $meta = get_post_meta($post_id,'sections_single',true);
-    if (is_array($meta)) {
-        foreach ($meta as $row){
-            $k = $row['key'] ?? ''; if ($k==='') continue;
-            $sections[$k] = array('title'=>($row['title'] ?? ''), 'content'=>($row['content'] ?? ''));
-        }
-    }
-    return $sections;
-}
 
 add_action('admin_menu', function () {
     add_submenu_page('edit.php?post_type=city_persona','Import from Data','Import from Data','edit_posts','bo-cp-sync','bo_cp_render_sync_page');
@@ -147,20 +233,20 @@ function bo_cp_render_sync_page() {
     $errors = intval($_GET['errors'] ?? 0);
     $notes  = sanitize_text_field($_GET['notes'] ?? '');
 
-    echo '<div class="wrap"><h1>Import Personas from Data (Unified)</h1>';
+    echo '<div class="wrap"><h1>Import Personas from Data</h1>';
     if ($synced || $errors || $notes !== '') {
         echo '<div class="notice notice-info"><p><strong>Result:</strong> '
-            . esc_html($synced) . ' synced, '
+            . esc_html($synced) . ' processed, '
             . esc_html($errors) . ' failed'
             . ($notes !== '' ? (', notes: ' . esc_html($notes)) : '')
             . '.</p></div>';
     }
 
-    echo '<p>Scans: <code>uploads/bo-city-personality/data/*.php</code> and <code>plugin_dir/data/*.php</code> for unified files.</p>';
-    echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+    echo '<p>Each <code>*.php</code> file becomes a single <code>city_persona</code> post with multilingual sections stored on that post.</p>';
+    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
     wp_nonce_field('bo_cp_sync_run');
     echo '<input type="hidden" name="action" value="bo_cp_sync_run" />';
-    echo '<label><input type="checkbox" name="skip_update_existing" value="1" /> Do not update existing child pages (only create missing ones)</label>';
+    echo '<label><input type="checkbox" name="skip_update_existing" value="1" /> Do not update existing personas (only create missing ones)</label>';
     echo '<p><button class="button button-primary">Run Import</button></p>';
     echo '</form></div>';
 }
@@ -188,68 +274,67 @@ add_action('admin_post_bo_cp_sync_run', function () {
             if (! isset($data['locales']) || ! is_array($data['locales'])) { $errors++; $notes[] = basename($file) . ': no locales[]'; continue; }
 
             $key_raw = (string) $data['name'];
-            $key     = function_exists('bo_cp_canon_key') ? bo_cp_canon_key($key_raw) : sanitize_title($key_raw);
-
-            $parent_id = bo_cp_get_or_create_parent($key, $key);
-            if (! $parent_id) { $errors++; $notes[] = $key . ': parent create failed'; continue; }
-
+            $persona_key = bo_cp_canon_key($key_raw);
             $dispMap = is_array($data['displayTitle'] ?? null) ? $data['displayTitle'] : array();
 
-            foreach ($data['locales'] as $lang => $localeData) {
-                $lang = sanitize_text_field($lang);
-                if ($lang !== 'en' && $lang !== 'zh') continue;
-
-                $disp = (string) ($dispMap[$lang] ?? $key);
-                $sections = array();
-                if (isset($localeData['sections']) && is_array($localeData['sections'])) {
-                    foreach ($localeData['sections'] as $k => $sec) {
-                        $kk = function_exists('bo_cp_canon_key') ? bo_cp_canon_key((string)$k) : sanitize_key($k);
-                        if (is_array($sec)) {
-                            $sections[$kk] = array('title'=>(string)($sec['title'] ?? ''), 'content'=>(string)($sec['content'] ?? ''));
-                        } else {
-                            $sections[$kk] = array('title'=>'', 'content'=>(string)$sec);
-                        }
+            $locales_meta = array();
+            foreach (bo_cp_persona_supported_languages() as $lang => $label) {
+                $localeData = isset($data['locales'][$lang]) && is_array($data['locales'][$lang]) ? $data['locales'][$lang] : array();
+                $sections_input = array();
+                $overview_content = '';
+                if (isset($localeData['sections']['overview']['content'])) {
+                    $overview_content = (string) $localeData['sections']['overview']['content'];
+                }
+                if (!empty($localeData['sections']) && is_array($localeData['sections'])) {
+                    foreach ($localeData['sections'] as $secKey => $secVal) {
+                        if ($secKey === 'overview') { continue; }
+                        $sections_input[] = array(
+                            'key'     => is_string($secKey) ? $secKey : (string)$secKey,
+                            'title'   => is_array($secVal) ? (string)($secVal['title'] ?? '') : '',
+                            'content' => is_array($secVal) ? (string)($secVal['content'] ?? '') : (string)$secVal,
+                        );
                     }
                 }
-
-                $overview = (string)($sections['overview']['content'] ?? '');
-                $rows = array();
-                foreach ($sections as $k => $sec) {
-                    if ($k === 'overview') continue;
-                    $rows[] = array('key'=>$k, 'title'=>(string)($sec['title'] ?? ''), 'content'=>(string)($sec['content'] ?? ''));
-                }
-
-                $child_id = bo_cp_get_child_by_lang($parent_id, $lang);
-                if ($child_id) {
-                    if (! $skip_update_existing) {
-                        $postarr = array('ID'=>$child_id, 'post_title'=>$disp, 'post_content'=>wp_kses_post($overview));
-                        $ret = wp_update_post($postarr, true);
-                        if (is_wp_error($ret)) { $errors++; $notes[] = $key . "[$lang]: update failed " . $ret->get_error_message(); continue; }
-                        update_post_meta($child_id, 'persona_key', $key);
-                        update_post_meta($child_id, 'lang', $lang);
-                        update_post_meta($child_id, 'sections_single', $rows);
-                        $synced++;
-                    } else {
-                        update_post_meta($child_id, 'persona_key', $key);
-                        update_post_meta($child_id, 'lang', $lang);
-                        if (! get_post_meta($child_id, 'sections_single', true)) {
-                            update_post_meta($child_id, 'sections_single', $rows);
-                        }
-                        $synced++;
-                    }
-                } else {
-                    $postarr = array(
-                        'post_type'=>'city_persona','post_status'=>'publish','post_title'=>$disp,
-                        'post_parent'=>$parent_id,'post_content'=>wp_kses_post($overview)
-                    );
-                    $child_id = wp_insert_post($postarr, true);
-                    if (is_wp_error($child_id) || ! $child_id) { $errors++; $notes[] = $key . "[$lang]: insert failed"; continue; }
-                    update_post_meta($child_id, 'persona_key', $key);
-                    update_post_meta($child_id, 'lang', $lang);
-                    update_post_meta($child_id, 'sections_single', $rows);
-                    $synced++;
-                }
+                $locales_meta[$lang] = bo_cp_normalize_locale_submission($lang, array(
+                    'displayTitle' => (string)($dispMap[$lang] ?? ''),
+                    'overview'     => $overview_content,
+                    'sections'     => $sections_input,
+                ));
             }
+
+            $post_id = bo_cp_find_persona_post_id($persona_key);
+            $post_title = $locales_meta['en']['displayTitle'] ?: ($dispMap['en'] ?? $key_raw);
+            if (! $post_title) {
+                $post_title = $persona_key;
+            }
+            $overview_en = $locales_meta['en']['sections']['overview']['content'] ?? '';
+
+            if ($post_id) {
+                if ($skip_update_existing) {
+                    $synced++;
+                    continue;
+                }
+                $postarr = array(
+                    'ID'           => $post_id,
+                    'post_title'   => $post_title,
+                    'post_content' => wp_kses_post($overview_en),
+                );
+                $ret = wp_update_post($postarr, true);
+                if (is_wp_error($ret)) { $errors++; $notes[] = $persona_key . ': update failed ' . $ret->get_error_message(); continue; }
+            } else {
+                $postarr = array(
+                    'post_type'    => 'city_persona',
+                    'post_status'  => 'publish',
+                    'post_title'   => $post_title,
+                    'post_content' => wp_kses_post($overview_en),
+                );
+                $post_id = wp_insert_post($postarr, true);
+                if (is_wp_error($post_id) || ! $post_id) { $errors++; $notes[] = $persona_key . ': insert failed'; continue; }
+            }
+
+            update_post_meta($post_id, 'persona_key', $persona_key);
+            update_post_meta($post_id, 'locales', $locales_meta);
+            $synced++;
         }
     }
 
@@ -263,29 +348,3 @@ add_action('admin_post_bo_cp_sync_run', function () {
     wp_safe_redirect( add_query_arg($args, admin_url('edit.php')) );
     exit;
 });
-
-function bo_cp_get_or_create_parent($persona_key, $unused) {
-    $q = new WP_Query(array(
-        'post_type'=>'city_persona',
-        'post_status'=>array('publish','draft','pending','private'),
-        'posts_per_page'=>1,
-        'post_parent'=>0,
-        'meta_query'=>array(array('key'=>'persona_key','value'=>$persona_key,'compare'=>'=')),
-        'fields'=>'ids','no_found_rows'=>true,
-    ));
-    if (! empty($q->posts)) return intval($q->posts[0]);
-
-    $postarr = array('post_type'=>'city_persona','post_status'=>'publish','post_title'=>$persona_key,'post_parent'=>0);
-    $pid = wp_insert_post($postarr, true);
-    if (is_wp_error($pid) || ! $pid) return 0;
-    update_post_meta($pid, 'persona_key', $persona_key);
-    return intval($pid);
-}
-
-function bo_cp_get_child_by_lang($parent_id, $lang) {
-    $children = get_children(array('post_parent'=>$parent_id,'post_type'=>'city_persona','post_status'=>'any','fields'=>'ids'));
-    if (empty($children)) return 0;
-    foreach ($children as $cid) { if (get_post_meta($cid,'lang',true) === $lang) return intval($cid); }
-    return 0;
-}
-
