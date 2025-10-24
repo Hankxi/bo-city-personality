@@ -363,15 +363,16 @@ add_action('admin_post_bo_cp_sync_run', function () {
 
             if (! is_array($data)) { $errors++; $notes[] = basename($file) . ': not array'; continue; }
             if (empty($data['name'])) { $errors++; $notes[] = basename($file) . ': no name'; continue; }
-            if (! isset($data['locales']) || ! is_array($data['locales'])) { $errors++; $notes[] = basename($file) . ': no locales[]'; continue; }
+            $rawLocales = bo_cp_extract_dataset_locales($data);
+            if (empty($rawLocales)) { $errors++; $notes[] = basename($file) . ': no locales[]'; continue; }
 
             $key_raw = (string) $data['name'];
             $persona_key = bo_cp_canon_key($key_raw);
-            $dispMap = is_array($data['displayTitle'] ?? null) ? $data['displayTitle'] : array();
+            $dispMap = bo_cp_extract_display_titles($data);
 
             $locales_meta = array();
             foreach (bo_cp_persona_supported_languages() as $lang => $label) {
-                $localeData = isset($data['locales'][$lang]) && is_array($data['locales'][$lang]) ? $data['locales'][$lang] : array();
+                $localeData = isset($rawLocales[$lang]) && is_array($rawLocales[$lang]) ? $rawLocales[$lang] : array();
                 $sections_input = array();
                 $overview_content = '';
                 if (isset($localeData['sections']['overview']['content'])) {
@@ -387,8 +388,9 @@ add_action('admin_post_bo_cp_sync_run', function () {
                         );
                     }
                 }
+                $displayTitle = (string)($dispMap[$lang] ?? ($localeData['displayTitle'] ?? ''));
                 $locales_meta[$lang] = bo_cp_normalize_locale_submission($lang, array(
-                    'displayTitle' => (string)($dispMap[$lang] ?? ''),
+                    'displayTitle' => $displayTitle,
                     'overview'     => $overview_content,
                     'sections'     => $sections_input,
                 ));
