@@ -53,9 +53,43 @@ function bo_cp_google_places_request(string $endpoint, array $params, string $ca
     return $body;
 }
 
+function bo_cp_google_geocode_request(array $params, string $cache_key) {
+    $api_key = defined('GMP_SERVER_PLACES_API_KEY') ? GMP_SERVER_PLACES_API_KEY : '';
+    if (!$api_key) {
+        return new WP_Error('config_error', 'Google API key not configured.', ['status' => 500]);
+    }
+    $cache_name = 'bo_cp_geocode_' . md5($cache_key);
+    $cached = get_transient($cache_name);
+    if (is_array($cached)) {
+        return $cached;
+    }
+    $params['key'] = $api_key;
+    $url = add_query_arg($params, 'https://maps.googleapis.com/maps/api/geocode/json');
+    $resp = wp_remote_get($url, ['timeout' => 15]);
+    if (is_wp_error($resp)) {
+        return new WP_Error('remote_error', $resp->get_error_message(), ['status' => 502]);
+    }
+    $code = wp_remote_retrieve_response_code($resp);
+    if ($code !== 200) {
+        return new WP_Error('remote_error', 'Google Geocode API HTTP ' . $code, ['status' => 502]);
+    }
+    $body = json_decode(wp_remote_retrieve_body($resp), true);
+    if (!is_array($body)) {
+        return new WP_Error('remote_error', 'Invalid Google Geocode API response.', ['status' => 502]);
+    }
+    if (($body['status'] ?? '') === 'OK') {
+        set_transient($cache_name, $body, HOUR_IN_SECONDS * 6);
+    }
+    return $body;
+}
+
 function bo_cp_lookup_place(string $city, string $country, string $place_id = '', string $lang = 'en') {
     $lang = $lang ?: 'en';
     $query = trim($city . ', ' . $country);
+    $result = null;
+    $components = [];
+    $used_geocode = false;
+
     if ($place_id === '') {
         $text = bo_cp_google_places_request('textsearch', [
             'query'    => $query,
@@ -65,30 +99,65 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
         if (is_wp_error($text)) {
             return $text;
         }
-        if (($text['status'] ?? '') !== 'OK' || empty($text['results'])) {
+        if (($text['status'] ?? '') === 'OK' && !empty($text['results'])) {
+            $candidate = $text['results'][0];
+            $place_id = $candidate['place_id'] ?? '';
+            if ($place_id) {
+                $details = bo_cp_google_places_request('details', [
+                    'place_id' => $place_id,
+                    'language' => $lang,
+                    'fields'   => 'geometry/location,address_component,name,formatted_address,place_id',
+                ], 'details_' . $lang . '_' . $place_id);
+                if (!is_wp_error($details) && ($details['status'] ?? '') === 'OK' && !empty($details['result']['geometry']['location'])) {
+                    $result = $details['result'];
+                    $components = $result['address_components'] ?? [];
+                } else if (is_wp_error($details)) {
+                    return $details;
+                } else {
+                    $result = $candidate;
+                }
+            } else {
+                $result = $candidate;
+            }
+        }
+    } else {
+        $details = bo_cp_google_places_request('details', [
+            'place_id' => $place_id,
+            'language' => $lang,
+            'fields'   => 'geometry/location,address_component,name,formatted_address,place_id',
+        ], 'details_' . $lang . '_' . $place_id);
+        if (is_wp_error($details)) {
+            return $details;
+        }
+        if (($details['status'] ?? '') === 'OK' && !empty($details['result']['geometry']['location'])) {
+            $result = $details['result'];
+            $components = $result['address_components'] ?? [];
+        } else {
+            return new WP_Error('place_not_found', 'Place details lookup failed.', ['status' => 404]);
+        }
+    }
+
+    if (!$result) {
+        $geo = bo_cp_google_geocode_request([
+            'address'  => $query,
+            'language' => $lang,
+        ], 'geo_' . $lang . '_' . $query);
+        if (is_wp_error($geo)) {
+            return $geo;
+        }
+        if (($geo['status'] ?? '') !== 'OK' || empty($geo['results'][0]['geometry']['location'])) {
             return new WP_Error('place_not_found', 'Unable to resolve the provided city.', ['status' => 404]);
         }
-        $place_id = $text['results'][0]['place_id'] ?? '';
-        if ($place_id === '') {
-            return new WP_Error('place_not_found', 'No matching place_id returned.', ['status' => 404]);
-        }
+        $result = $geo['results'][0];
+        $components = $result['address_components'] ?? [];
+        $used_geocode = true;
+        $place_id = $result['place_id'] ?? $place_id;
     }
 
-    $details = bo_cp_google_places_request('details', [
-        'place_id' => $place_id,
-        'language' => $lang,
-        'fields'   => 'geometry/location,address_component,name,formatted_address,place_id',
-    ], 'details_' . $lang . '_' . $place_id);
-    if (is_wp_error($details)) {
-        return $details;
-    }
-    if (($details['status'] ?? '') !== 'OK' || empty($details['result']['geometry']['location'])) {
-        return new WP_Error('place_not_found', 'Place details lookup failed.', ['status' => 404]);
-    }
-
-    $result = $details['result'];
     $loc = $result['geometry']['location'];
-    $components = $result['address_components'] ?? [];
+    if (!is_array($loc)) {
+        return new WP_Error('place_not_found', 'Place lookup missing geometry.', ['status' => 404]);
+    }
     $parsedCountry = $country;
     $parsedCity = $city;
     foreach ($components as $comp) {
@@ -107,8 +176,8 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
         'lng'               => (float) ($loc['lng'] ?? 0),
         'country'           => $parsedCountry,
         'city'              => $parsedCity,
-        'name'              => $result['name'] ?? '',
-        'formatted_address' => $result['formatted_address'] ?? '',
+        'name'              => $result['name'] ?? ($result['formatted_address'] ?? ($used_geocode ? $query : '')),
+        'formatted_address' => $result['formatted_address'] ?? $query,
     ];
 }
 
