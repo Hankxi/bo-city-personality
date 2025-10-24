@@ -18,15 +18,18 @@
     }
 
     // show persona + overview
+    const displayName = data.display_title || data.name || '';
+    const personaKey = data.persona_key || data.name || '';
     $('#bo-cp-result').style.display = 'block';
-    $('#bo-cp-name').textContent = data.name || '';
+    $('#bo-cp-name').textContent = displayName;
     $('#bo-cp-overview').innerHTML = data.overview_html || '<p>(No overview)</p>';
 
     // cache for later section loads
     window.__boCP = {
       result_id: data.result_id,
-      name: data.name,
-      token: data.token
+      name: personaKey,
+      token: data.token,
+      display_title: displayName
     };
   });
 

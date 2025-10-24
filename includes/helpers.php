@@ -4,6 +4,51 @@
  */
 if ( ! defined('ABSPATH') ) { exit; }
 
+// ---------- Google API key helper ----------
+if (!function_exists('bo_cp_google_api_key')) {
+    function bo_cp_google_api_key(string $service = ''): string {
+        $service = strtolower(trim($service));
+
+        $filtered = apply_filters('bo_cp_google_api_key', '', $service);
+        if (is_string($filtered) && $filtered !== '') {
+            return trim($filtered);
+        }
+
+        $candidates = [];
+        if ($service !== '') {
+            $svcUpper = strtoupper($service);
+            $candidates[] = 'GMP_SERVER_' . $svcUpper . '_API_KEY';
+            $candidates[] = 'BO_CP_' . $svcUpper . '_API_KEY';
+            if ($service === 'places') {
+                $candidates[] = 'GMP_SERVER_PLACES_API_KEY';
+            } elseif ($service === 'timezone') {
+                $candidates[] = 'GMP_SERVER_TIMEZONE_API_KEY';
+            }
+        }
+
+        $candidates = array_merge($candidates, [
+            'GMP_SERVER_PLACES_API_KEY',
+            'GMP_SERVER_GOOGLE_API_KEY',
+            'GMP_SERVER_API_KEY',
+            'GOOGLE_MAPS_SERVER_KEY',
+            'GOOGLE_MAPS_API_KEY',
+            'GOOGLE_API_KEY',
+        ]);
+        $candidates = array_values(array_unique(array_filter($candidates)));
+
+        foreach ($candidates as $constant) {
+            if (defined($constant)) {
+                $value = constant($constant);
+                if (is_string($value) && $value !== '') {
+                    return trim($value);
+                }
+            }
+        }
+
+        return '';
+    }
+}
+
 // ---------- JSON response ----------
 if (!function_exists('bo_cp_json_response')) {
     function bo_cp_json_response($data, $status = 200) {
@@ -187,5 +232,129 @@ if (!function_exists('bo_cp_upsert_persona_post')) {
         update_post_meta($post_id, 'persona_key', $name);
 
         return (int)$post_id;
+    }
+}
+
+if (!function_exists('bo_cp_parse_hour_slot')) {
+    function bo_cp_parse_hour_slot($slot): int {
+        $slot = trim((string)$slot);
+        if ($slot === '') {
+            return 12;
+        }
+        if (preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $slot, $m)) {
+            $a = max(0, min(23, intval($m[1])));
+            $b = max(0, min(23, intval($m[2])));
+            $mid = (int) round(($a + $b) / 2);
+            return max(0, min(23, $mid));
+        }
+        if (preg_match('/^(\d{1,2})$/', $slot, $m)) {
+            $h = intval($m[1]);
+            if ($h < 0) { $h = 0; }
+            if ($h > 23) { $h = $h % 24; }
+            return $h;
+        }
+        return 12;
+    }
+}
+
+if (!function_exists('bo_cp_results_table_name')) {
+    function bo_cp_results_table_name(): string {
+        global $wpdb;
+        return $wpdb->prefix . 'bo_cp_results';
+    }
+}
+
+if (!function_exists('bo_cp_ensure_results_table')) {
+    function bo_cp_ensure_results_table(): void {
+        static $done = false;
+        if ($done) { return; }
+        global $wpdb;
+        $table = bo_cp_results_table_name();
+        $charset = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE {$table} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            created_at DATETIME NOT NULL,
+            persona_key VARCHAR(191) NOT NULL,
+            lang VARCHAR(20) NOT NULL DEFAULT 'en',
+            country VARCHAR(191) DEFAULT '',
+            city VARCHAR(191) DEFAULT '',
+            birth_date DATE DEFAULT NULL,
+            hour_slot VARCHAR(20) DEFAULT '',
+            lat DOUBLE DEFAULT NULL,
+            lng DOUBLE DEFAULT NULL,
+            tz_id VARCHAR(191) DEFAULT '',
+            raw_offset INT DEFAULT 0,
+            dst_offset INT DEFAULT 0,
+            email VARCHAR(191) DEFAULT '',
+            person_name VARCHAR(191) DEFAULT '',
+            gender VARCHAR(64) DEFAULT '',
+            ip VARCHAR(100) DEFAULT '',
+            user_agent TEXT NULL,
+            meta LONGTEXT NULL,
+            PRIMARY KEY  (id),
+            KEY persona_key (persona_key),
+            KEY created_at (created_at)
+        ) {$charset};";
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta($sql);
+        $done = true;
+    }
+}
+
+if (!function_exists('bo_cp_store_result')) {
+    function bo_cp_store_result(array $data, array $meta = []): int {
+        global $wpdb;
+        bo_cp_ensure_results_table();
+        $table = bo_cp_results_table_name();
+        $row = [
+            'created_at' => current_time('mysql', true),
+            'persona_key'=> bo_cp_canon_key($data['persona_key'] ?? ''),
+            'lang'       => strtolower($data['lang'] ?? 'en'),
+            'country'    => (string)($data['country'] ?? ''),
+            'city'       => (string)($data['city'] ?? ''),
+            'birth_date' => ($data['birth_date'] ?? null) ?: null,
+            'hour_slot'  => (string)($data['hour_slot'] ?? ''),
+            'lat'        => isset($data['lat']) ? (float)$data['lat'] : null,
+            'lng'        => isset($data['lng']) ? (float)$data['lng'] : null,
+            'tz_id'      => (string)($data['tz_id'] ?? ''),
+            'raw_offset' => isset($data['raw_offset']) ? intval($data['raw_offset']) : 0,
+            'dst_offset' => isset($data['dst_offset']) ? intval($data['dst_offset']) : 0,
+            'email'      => (string)($data['email'] ?? ''),
+            'person_name'=> (string)($data['person_name'] ?? ''),
+            'gender'     => (string)($data['gender'] ?? ''),
+            'ip'         => (string)($data['ip'] ?? ''),
+            'user_agent' => (string)($data['user_agent'] ?? ''),
+            'meta'       => $meta ? wp_json_encode($meta) : null,
+        ];
+        $formats = [
+            '%s','%s','%s','%s','%s','%s','%s','%f','%f','%s','%d','%d','%s','%s','%s','%s','%s','%s'
+        ];
+        $success = $wpdb->insert($table, $row, $formats);
+        if ($success === false) {
+            return 0;
+        }
+        return intval($wpdb->insert_id);
+    }
+}
+
+if (!function_exists('bo_cp_get_result')) {
+    function bo_cp_get_result(int $id): ?array {
+        global $wpdb;
+        if ($id <= 0) { return null; }
+        bo_cp_ensure_results_table();
+        $table = bo_cp_results_table_name();
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
+        if (!is_array($row)) {
+            return null;
+        }
+        if (!empty($row['meta'])) {
+            $decoded = json_decode($row['meta'], true);
+            if (is_array($decoded)) {
+                $row['meta'] = $decoded;
+            }
+        } else {
+            $row['meta'] = [];
+        }
+        return $row;
     }
 }

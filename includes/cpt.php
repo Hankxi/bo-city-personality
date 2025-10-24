@@ -2,7 +2,7 @@
 if ( ! defined('ABSPATH') ) { exit; }
 
 /**
- * Register CPT: city_persona (hierarchical => parent = persona key, children = language pages)
+ * Register CPT: city_persona (single post per persona)
  */
 add_action('init', function(){
     $labels = array(
@@ -26,22 +26,21 @@ add_action('init', function(){
         'show_ui'            => true,
         'show_in_menu'       => true,
         'show_in_rest'       => false,
-        'hierarchical'       => true,
+        'hierarchical'       => false,
         'menu_position'      => 25,
         'menu_icon'          => 'dashicons-id',
-        'supports'           => array('title','editor','author','revisions'),
+        'supports'           => array('title','author','revisions'),
         'has_archive'        => false,
         'capability_type'    => 'post'
     ));
 });
 
 /**
- * Admin list columns: Parent key + Language + Children status
+ * Admin list columns: Persona key + available locales summary
  */
 add_filter('manage_edit-city_persona_columns', function($cols){
     $cols['persona_key'] = 'Persona Key';
-    $cols['lang'] = 'Lang';
-    $cols['children'] = 'Children';
+    $cols['locales'] = 'Locales';
     return $cols;
 });
 add_action('manage_city_persona_posts_custom_column', function($col, $post_id){
@@ -49,19 +48,20 @@ add_action('manage_city_persona_posts_custom_column', function($col, $post_id){
         $k = get_post_meta($post_id, 'persona_key', true);
         if (!$k) $k = get_the_title($post_id);
         echo esc_html($k);
-    } elseif ($col === 'lang') {
-        $lang = get_post_meta($post_id, 'lang', true);
-        if ($lang) {
-            echo '<span class="dashicons dashicons-translation"></span> ' . esc_html(strtoupper($lang));
-        } else {
-            echo '-';
-        }
-    } elseif ($col === 'children') {
-        $kids = get_children(array('post_parent'=>$post_id,'post_type'=>'city_persona','post_status'=>'any','fields'=>'ids'));
-        if (!empty($kids)) {
+    } elseif ($col === 'locales') {
+        $locales = get_post_meta($post_id, 'locales', true);
+        if (is_array($locales) && !empty($locales)) {
             $langs = array();
-            foreach ($kids as $cid) { $langs[] = strtoupper(get_post_meta($cid,'lang',true) ?: '?'); }
-            echo implode(' / ', array_unique($langs));
+            foreach ($locales as $lang => $row) {
+                if (!is_string($lang) || $lang === '') continue;
+                $label = strtoupper($lang);
+                $display = isset($row['displayTitle']) ? trim((string)$row['displayTitle']) : '';
+                if ($display !== '') {
+                    $label .= ' – ' . $display;
+                }
+                $langs[] = sprintf('<span class="bo-cp-locale">%s</span>', esc_html($label));
+            }
+            echo implode('<br/>', $langs);
         } else {
             echo '-';
         }
