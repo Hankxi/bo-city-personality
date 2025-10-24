@@ -12,15 +12,47 @@ function bo_cp_canon_key(string $s): string {
     return $s ?: 'persona';
 }}
 
-function bo_cp_persona_data_dir(): string {
+function bo_cp_persona_data_roots(): array {
+    $roots = array();
+
+    $plugin_root = trailingslashit(plugin_dir_path(__FILE__)) . '../data/';
+    $roots[] = $plugin_root;
+
     $uploads = wp_upload_dir();
-    $dir = trailingslashit($uploads['basedir']) . 'bo-city-personality/data/';
+    if (!empty($uploads['basedir'])) {
+        $roots[] = trailingslashit($uploads['basedir']) . 'bo-city-personality/data/';
+    }
+
+    return array_values(array_unique($roots));
+}
+
+function bo_cp_persona_data_dir(): string {
+    $roots = bo_cp_persona_data_roots();
+    $dir = end($roots);
+    if (! $dir) {
+        $dir = trailingslashit(WP_CONTENT_DIR) . 'uploads/bo-city-personality/data/';
+    }
     if ( ! wp_mkdir_p($dir) ) {}
     return $dir;
 }
 
+function bo_cp_persona_locate_existing_file(string $key): string {
+    $key = bo_cp_canon_key($key);
+    foreach (bo_cp_persona_data_roots() as $root) {
+        $candidate = $root . $key . '.php';
+        if (file_exists($candidate)) {
+            return $candidate;
+        }
+    }
+    return '';
+}
+
 function bo_cp_persona_file_path(string $key): string {
     $key = bo_cp_canon_key($key);
+    $existing = bo_cp_persona_locate_existing_file($key);
+    if ($existing) {
+        return $existing;
+    }
     return bo_cp_persona_data_dir() . $key . '.php';
 }
 
@@ -42,8 +74,8 @@ function bo_cp_find_persona_post_id(string $persona_key): int {
 
 /** Read unified multi-language persona file; return array or default shell */
 function bo_cp_read_persona_file(string $key): array {
-    $file = bo_cp_persona_file_path($key);
-    if ( file_exists($file) ) {
+    $file = bo_cp_persona_locate_existing_file($key);
+    if ( $file && file_exists($file) ) {
         $data = include $file;
         if ( is_array($data) ) return $data;
     }
@@ -109,17 +141,18 @@ function bo_cp_write_persona_dataset(string $key, array $locales, ?int $expected
     $export = var_export($data, true);
     $php = "<?php\nreturn " . $export . ";\n";
 
-    $dir = bo_cp_persona_data_dir();
+    $file = bo_cp_persona_file_path($key);
+    $dir  = trailingslashit(dirname($file));
     if ( ! wp_mkdir_p($dir) ) return false;
 
-    $file = bo_cp_persona_file_path($key);
-    $tmp  = $file . '.' . ( function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : uniqid('', true) ) . '.tmp';
+    $tmp  = $dir . $key . '.' . ( function_exists('wp_generate_uuid4') ? wp_generate_uuid4() : uniqid('', true) ) . '.tmp';
 
     $bytes = @file_put_contents($tmp, $php, LOCK_EX);
-    if ($bytes === false) return false;
+    if ($bytes === false) { @unlink($tmp); return false; }
     @chmod($tmp, 0644);
     $ok = @rename($tmp, $file);
     if ( ! $ok ) { @unlink($tmp); return false; }
+    clearstatcache(true, $file);
 
     // purge transients for this persona
     global $wpdb;
@@ -187,8 +220,8 @@ function bo_cp_load_sections(string $key, string $lang): array {
 
 /** Build ETag/Last-Modified */
 function bo_cp_persona_http_meta(string $key): array {
-    $file = bo_cp_persona_file_path($key);
-    if ( file_exists($file) ) {
+    $file = bo_cp_persona_locate_existing_file($key);
+    if ( $file && file_exists($file) ) {
         $mtime = @filemtime($file) ?: time();
         return ['etag' => '"' . md5(bo_cp_canon_key($key) . '|' . $mtime) . '"', 'lastmod' => gmdate('D, d M Y H:i:s', $mtime) . ' GMT'];
     }

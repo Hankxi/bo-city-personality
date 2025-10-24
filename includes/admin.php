@@ -133,11 +133,20 @@ function bo_cp_render_persona_box(WP_Post $post): void {
             $key   = $row['key'];
             $title = $row['title'];
             $content = $row['content'];
+            $editor_id = 'bo_cp_section_' . $safe_lang . '_' . $i;
             echo '<div class="bo-cp-section-row" data-index="' . esc_attr((string)$i) . '">';
             echo '<div class="bo-cp-line"><span class="bo-cp-chip">' . esc_html($key !== '' ? $key : ('#' . $i)) . '</span><strong>Section</strong></div>';
             echo '<p><label>Key</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][' . esc_attr((string)$i) . '][key]" value="' . esc_attr($key) . '" /></p>';
             echo '<p><label>Title</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][' . esc_attr((string)$i) . '][title]" value="' . esc_attr($title) . '" /></p>';
-            echo '<p><label>Content</label><textarea class="widefat" rows="6" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][' . esc_attr((string)$i) . '][content]">' . esc_textarea($content) . '</textarea></p>';
+            echo '<p><label>Content</label>';
+            wp_editor($content, $editor_id, array(
+                'textarea_name' => 'bo_cp_locales[' . $safe_lang . '][sections][' . $i . '][content]',
+                'textarea_rows' => 8,
+                'media_buttons' => true,
+                'tinymce'       => true,
+                'quicktags'     => true,
+            ));
+            echo '</p>';
             echo '<p><button type="button" class="button link-delete bo-cp-remove-section">Remove section</button></p>';
             echo '<hr /></div>';
             $i++;
@@ -147,13 +156,18 @@ function bo_cp_render_persona_box(WP_Post $post): void {
         echo '<p class="description">Leave all fields empty to drop a section. Sections use canonical keys when saved.</p>';
         echo '</div>';
 
-        $template = '<div class="bo-cp-section-row" data-index="__INDEX__">'
-            . '<div class="bo-cp-line"><span class="bo-cp-chip">#__INDEX__</span><strong>Section</strong></div>'
-            . '<p><label>Key</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][__INDEX__][key]" value="" /></p>'
-            . '<p><label>Title</label><input type="text" class="widefat" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][__INDEX__][title]" value="" /></p>'
-            . '<p><label>Content</label><textarea class="widefat" rows="6" name="bo_cp_locales[' . esc_attr($safe_lang) . '][sections][__INDEX__][content]"></textarea></p>'
-            . '<p><button type="button" class="button link-delete bo-cp-remove-section">Remove section</button></p>'
-            . '<hr /></div>';
+        ob_start();
+        ?>
+        <div class="bo-cp-section-row" data-index="__INDEX__">
+            <div class="bo-cp-line"><span class="bo-cp-chip">#__INDEX__</span><strong>Section</strong></div>
+            <p><label>Key</label><input type="text" class="widefat" name="bo_cp_locales[<?php echo esc_attr($safe_lang); ?>][sections][__INDEX__][key]" value="" /></p>
+            <p><label>Title</label><input type="text" class="widefat" name="bo_cp_locales[<?php echo esc_attr($safe_lang); ?>][sections][__INDEX__][title]" value="" /></p>
+            <p><label>Content</label><textarea class="widefat wp-editor-area bo-cp-wpeditor" data-lang="<?php echo esc_attr($safe_lang); ?>" id="__EDITOR_ID__" rows="6" name="bo_cp_locales[<?php echo esc_attr($safe_lang); ?>][sections][__INDEX__][content]"></textarea></p>
+            <p><button type="button" class="button link-delete bo-cp-remove-section">Remove section</button></p>
+            <hr />
+        </div>
+        <?php
+        $template = ob_get_clean();
         echo '<script type="text/template" id="bo-cp-template-' . esc_attr($safe_lang) . '">' . $template . '</script>';
     }
 
@@ -165,34 +179,93 @@ function bo_cp_render_persona_box(WP_Post $post): void {
 .bo-cp-chip{display:inline-block;padding:2px 8px;border:1px solid #e5e7eb;border-radius:999px;font-size:12px;color:#555;background:#f8fafc}
 .bo-cp-line{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .bo-cp-section-row{background:#f8fafc;border:1px solid #dbe3f0;border-radius:8px;padding:12px;margin-bottom:12px}
-.bo-cp-section-row textarea{font-family:monospace}
+.bo-cp-section-row textarea:not(.wp-editor-area){font-family:monospace}
 </style>';
         echo '<script>';
         echo <<<'JS'
 (function(){
     function nextIndex(container){
-        var rows = container.querySelectorAll(".bo-cp-section-row");
+        var rows = container.querySelectorAll('.bo-cp-section-row');
         var max = -1;
         rows.forEach(function(row){
-            var idx = parseInt(row.getAttribute("data-index"), 10);
+            var idx = parseInt(row.getAttribute('data-index'), 10);
             if (!isNaN(idx) && idx > max) { max = idx; }
         });
         return max + 1;
     }
-    document.addEventListener("click", function(ev){
-        if (ev.target.classList.contains("bo-cp-add-section")) {
+    function uniqueEditorId(lang, idx){
+        return 'bo_cp_section_' + lang + '_' + idx + '_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    }
+    function cloneSettings(obj){
+        if (!obj || typeof obj !== 'object') { return obj; }
+        if (window.jQuery && window.jQuery.extend) {
+            return window.jQuery.extend(true, {}, obj);
+        }
+        var copy = {};
+        Object.keys(obj).forEach(function(key){
+            copy[key] = obj[key];
+        });
+        return copy;
+    }
+    function initEditor(row, lang){
+        if (!window.wp || !wp.editor || !wp.editor.initialize) { return; }
+        var textarea = row.querySelector('textarea.bo-cp-wpeditor');
+        if (!textarea) { return; }
+        var editorId = textarea.getAttribute('id');
+        if (!editorId) {
+            editorId = uniqueEditorId(lang, row.getAttribute('data-index') || 'new');
+            textarea.setAttribute('id', editorId);
+        }
+        if (textarea.dataset.editorInitialized === '1') {
+            return;
+        }
+        var settings = { mediaButtons: true };
+        var baseId = 'bo_cp_overview_' + lang;
+        if (window.tinyMCEPreInit && window.tinyMCEPreInit.mceInit && window.tinyMCEPreInit.mceInit[baseId]) {
+            settings.tinymce = cloneSettings(window.tinyMCEPreInit.mceInit[baseId]);
+            settings.tinymce.selector = '#' + editorId;
+            if (settings.tinymce.body_class) {
+                settings.tinymce.body_class = settings.tinymce.body_class.replace(baseId, editorId);
+            }
+        } else {
+            settings.tinymce = true;
+        }
+        if (window.tinyMCEPreInit && window.tinyMCEPreInit.qtInit && window.tinyMCEPreInit.qtInit[baseId]) {
+            settings.quicktags = cloneSettings(window.tinyMCEPreInit.qtInit[baseId]);
+            settings.quicktags.id = editorId;
+        } else {
+            settings.quicktags = true;
+        }
+        wp.editor.initialize(editorId, settings);
+        textarea.dataset.editorInitialized = '1';
+    }
+    function destroyEditor(row){
+        if (!window.wp || !wp.editor || !wp.editor.remove) { return; }
+        var textarea = row.querySelector('textarea.bo-cp-wpeditor');
+        if (textarea && textarea.id) {
+            try { wp.editor.remove(textarea.id); } catch (e) {}
+        }
+    }
+    document.addEventListener('click', function(ev){
+        if (ev.target.classList.contains('bo-cp-add-section')) {
             ev.preventDefault();
-            var lang = ev.target.getAttribute("data-lang");
+            var lang = ev.target.getAttribute('data-lang');
             var container = document.querySelector(".bo-cp-sections[data-lang='" + lang + "']");
-            var tpl = document.getElementById("bo-cp-template-" + lang);
-            if (!container || !tpl) return;
+            var tpl = document.getElementById('bo-cp-template-' + lang);
+            if (!container || !tpl) { return; }
             var idx = nextIndex(container);
-            var html = tpl.innerHTML.replace(/__INDEX__/g, idx);
-            container.insertAdjacentHTML("beforeend", html);
-        } else if (ev.target.classList.contains("bo-cp-remove-section")) {
-            ev.preventDefault();
-            var row = ev.target.closest(".bo-cp-section-row");
+            var editorId = uniqueEditorId(lang, idx);
+            var html = tpl.innerHTML.replace(/__INDEX__/g, idx).replace(/__EDITOR_ID__/g, editorId);
+            container.insertAdjacentHTML('beforeend', html);
+            var row = container.querySelector(".bo-cp-section-row[data-index='" + idx + "']");
             if (row) {
+                initEditor(row, lang);
+            }
+        } else if (ev.target.classList.contains('bo-cp-remove-section')) {
+            ev.preventDefault();
+            var row = ev.target.closest('.bo-cp-section-row');
+            if (row) {
+                destroyEditor(row);
                 row.parentNode.removeChild(row);
             }
         }
@@ -255,11 +328,7 @@ add_action('admin_post_bo_cp_sync_run', function () {
     if (! current_user_can('edit_posts')) wp_die('Insufficient permissions.');
     check_admin_referer('bo_cp_sync_run');
 
-    $uploads = wp_upload_dir();
-    $roots = array(
-        trailingslashit($uploads['basedir']) . 'bo-city-personality/data/',
-        trailingslashit(plugin_dir_path(__FILE__)) . '../data/'
-    );
+    $roots = bo_cp_persona_data_roots();
 
     $synced = 0; $errors = 0; $notes = array();
     $skip_update_existing = !empty($_POST['skip_update_existing']);
