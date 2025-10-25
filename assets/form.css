@@ -1,5 +1,5 @@
 .bo-cp-widget {
-  max-width: 640px;
+  width: min(100%, 640px);
   margin: 0 auto;
   background: #ffffff;
   border: 1px solid rgba(0, 0, 0, 0.08);
@@ -8,6 +8,7 @@
   padding: 24px 28px;
   font-family: inherit;
   color: #1f2933;
+  box-sizing: border-box;
 }
 
 .bo-cp-form {
@@ -19,6 +20,10 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.bo-cp-form .row.city-row {
+  position: relative;
 }
 
 .bo-cp-form label {
@@ -137,9 +142,60 @@
   min-height: 64px;
 }
 
+.bo-cp-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+  display: none;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+  z-index: 20;
+}
+
+.bo-cp-suggestions.visible {
+  display: flex;
+}
+
+.bo-cp-suggestion {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.bo-cp-suggestion:hover,
+.bo-cp-suggestion:focus,
+.bo-cp-suggestion.active {
+  background: rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.bo-cp-suggestion.empty {
+  color: #64748b;
+  cursor: default;
+}
+
+.bo-cp-suggestion.empty:hover {
+  background: transparent;
+}
+
 @media (max-width: 600px) {
   .bo-cp-widget {
     padding: 20px 18px;
+    border-radius: 14px;
   }
   .bo-cp-form .input-group {
     flex-direction: column;
@@ -147,5 +203,31 @@
   }
   .bo-cp-form .link-button {
     align-self: flex-start;
+  }
+  .bo-cp-suggestions {
+    position: static;
+    box-shadow: none;
+    border-radius: 10px;
+    margin-top: -2px;
+  }
+}
+
+@media (max-width: 420px) {
+  .bo-cp-widget {
+    padding: 18px 14px;
+  }
+  .bo-cp-form label {
+    font-size: 0.9rem;
+  }
+  .bo-cp-form input[type="text"],
+  .bo-cp-form input[type="email"],
+  .bo-cp-form input[type="date"],
+  .bo-cp-form select {
+    font-size: 0.9rem;
+    padding: 10px;
+  }
+  .bo-cp-form button[type="submit"],
+  #bo-cp-load-section {
+    width: 100%;
   }
 }

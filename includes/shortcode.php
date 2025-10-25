@@ -66,11 +66,12 @@ class BO_CP_Shortcodes {
                 ?>
               </datalist>
             </div>
-            <div class="row">
+            <div class="row city-row" id="bo-cp-city-row">
               <label for="bo-cp-city"><?php echo esc_html($strings['city_label']); ?></label>
-              <input type="text" id="bo-cp-city" name="city" required placeholder="<?php echo esc_attr($strings['city_placeholder']); ?>" list="bo-cp-city-options" autocomplete="off">
+              <input type="text" id="bo-cp-city" name="city" required placeholder="<?php echo esc_attr($strings['city_placeholder']); ?>" list="bo-cp-city-options" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="bo-cp-city-suggestions" aria-expanded="false">
               <small class="hint"><?php echo esc_html($strings['city_helper']); ?></small>
               <datalist id="bo-cp-city-options"></datalist>
+              <div class="bo-cp-suggestions" id="bo-cp-city-suggestions" role="listbox" aria-label="<?php echo esc_attr($strings['city_label']); ?>"></div>
             </div>
             <div class="row">
               <label for="bo-cp-birth-date"><?php echo esc_html($strings['birth_label']); ?></label>
