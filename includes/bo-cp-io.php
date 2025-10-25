@@ -12,6 +12,18 @@ function bo_cp_canon_key(string $s): string {
     return $s ?: 'persona';
 }}
 
+if (!function_exists('bo_cp_is_indexed_array')) {
+function bo_cp_is_indexed_array(array $value): bool {
+    $expected = 0;
+    foreach ($value as $key => $_) {
+        if ($key !== $expected) {
+            return false;
+        }
+        $expected++;
+    }
+    return true;
+}}
+
 function bo_cp_persona_data_roots(): array {
     $roots = array();
 

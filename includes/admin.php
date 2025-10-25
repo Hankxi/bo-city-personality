@@ -373,21 +373,99 @@ add_action('admin_post_bo_cp_sync_run', function () {
             $locales_meta = array();
             foreach (bo_cp_persona_supported_languages() as $lang => $label) {
                 $localeData = isset($rawLocales[$lang]) && is_array($rawLocales[$lang]) ? $rawLocales[$lang] : array();
+
                 $sections_input = array();
                 $overview_content = '';
-                if (isset($localeData['sections']['overview']['content'])) {
-                    $overview_content = (string) $localeData['sections']['overview']['content'];
+
+                $sections_source = array();
+                if (isset($localeData['sections']) && is_array($localeData['sections'])) {
+                    $sections_source = $localeData['sections'];
                 }
-                if (!empty($localeData['sections']) && is_array($localeData['sections'])) {
-                    foreach ($localeData['sections'] as $secKey => $secVal) {
-                        if ($secKey === 'overview') { continue; }
-                        $sections_input[] = array(
-                            'key'     => is_string($secKey) ? $secKey : (string)$secKey,
-                            'title'   => is_array($secVal) ? (string)($secVal['title'] ?? '') : '',
-                            'content' => is_array($secVal) ? (string)($secVal['content'] ?? '') : (string)$secVal,
-                        );
+
+                if (!empty($sections_source)) {
+                    if (bo_cp_is_indexed_array($sections_source)) {
+                        foreach ($sections_source as $row) {
+                            if (!is_array($row)) {
+                                continue;
+                            }
+                            $rowKey = isset($row['key']) ? (string)$row['key'] : '';
+                            $canon  = $rowKey === 'overview' ? 'overview' : bo_cp_canon_key($rowKey);
+                            $title  = is_scalar($row['title'] ?? null) ? (string) $row['title'] : '';
+                            $content = '';
+                            if (isset($row['content']) && is_scalar($row['content'])) {
+                                $content = (string) $row['content'];
+                            } elseif (isset($row['text']) && is_scalar($row['text'])) {
+                                $content = (string) $row['text'];
+                            }
+
+                            if ($canon === 'overview') {
+                                if ($content !== '') {
+                                    $overview_content = $content;
+                                }
+                                continue;
+                            }
+
+                            if ($canon === '') {
+                                continue;
+                            }
+
+                            $sections_input[] = array(
+                                'key'     => $canon,
+                                'title'   => $title,
+                                'content' => $content,
+                            );
+                        }
+                    } else {
+                        foreach ($sections_source as $secKey => $secVal) {
+                            $rawKey = '';
+                            if (is_string($secKey)) {
+                                $rawKey = $secKey;
+                            }
+                            if (is_array($secVal) && isset($secVal['key']) && is_scalar($secVal['key'])) {
+                                $rawKey = (string) $secVal['key'];
+                            }
+
+                            $canonKey = $rawKey === 'overview' ? 'overview' : ($rawKey !== '' ? bo_cp_canon_key($rawKey) : '');
+
+                            $title = '';
+                            $content = '';
+                            if (is_array($secVal)) {
+                                if (isset($secVal['title']) && is_scalar($secVal['title'])) {
+                                    $title = (string) $secVal['title'];
+                                }
+                                if (isset($secVal['content']) && is_scalar($secVal['content'])) {
+                                    $content = (string) $secVal['content'];
+                                } elseif (isset($secVal['text']) && is_scalar($secVal['text'])) {
+                                    $content = (string) $secVal['text'];
+                                }
+                            } elseif (is_scalar($secVal)) {
+                                $content = (string) $secVal;
+                            }
+
+                            if ($canonKey === 'overview') {
+                                if ($content !== '') {
+                                    $overview_content = $content;
+                                }
+                                continue;
+                            }
+
+                            if ($canonKey === '') {
+                                continue;
+                            }
+
+                            $sections_input[] = array(
+                                'key'     => $canonKey,
+                                'title'   => $title,
+                                'content' => $content,
+                            );
+                        }
                     }
                 }
+
+                if ($overview_content === '' && isset($localeData['overview']) && is_scalar($localeData['overview'])) {
+                    $overview_content = (string) $localeData['overview'];
+                }
+
                 $displayTitle = (string)($dispMap[$lang] ?? ($localeData['displayTitle'] ?? ''));
                 $locales_meta[$lang] = bo_cp_normalize_locale_submission($lang, array(
                     'displayTitle' => $displayTitle,
