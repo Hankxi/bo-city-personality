@@ -30,6 +30,108 @@ function bo_cp_is_indexed_array(array $value): bool {
     return true;
 }}
 
+if (!function_exists('bo_cp_ingest_sections_block')) {
+function bo_cp_ingest_sections_block($source, array &$locales, string $defaultLang = 'en'): bool {
+    if (!is_array($source)) {
+        return false;
+    }
+
+    $handled = false;
+
+    if (bo_cp_is_indexed_array($source)) {
+        foreach ($source as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $lang = bo_cp_normalize_lang_key($row['lang'] ?? ($row['locale'] ?? ''));
+            if ($lang === '') {
+                $lang = $defaultLang !== '' ? $defaultLang : 'en';
+            }
+            if ($lang === '') {
+                $lang = 'en';
+            }
+            $rawKey = isset($row['key']) && is_scalar($row['key']) ? (string) $row['key'] : '';
+            $canon  = $rawKey === 'overview' ? 'overview' : ($rawKey !== '' ? bo_cp_canon_key($rawKey) : '');
+            if ($canon === '') {
+                continue;
+            }
+            $title = is_scalar($row['title'] ?? null) ? (string) $row['title'] : '';
+            $content = '';
+            if (isset($row['content']) && is_scalar($row['content'])) {
+                $content = (string) $row['content'];
+            } elseif (isset($row['text']) && is_scalar($row['text'])) {
+                $content = (string) $row['text'];
+            }
+            bo_cp_merge_legacy_section($locales, $lang, $canon, $title, $content);
+            $handled = true;
+        }
+        return $handled;
+    }
+
+    $languageKeys = array();
+    foreach ($source as $langKey => $_) {
+        $lang = bo_cp_normalize_lang_key($langKey);
+        if ($lang !== '') {
+            $languageKeys[$langKey] = $lang;
+        }
+    }
+
+    if (!empty($languageKeys)) {
+        foreach ($languageKeys as $langKey => $lang) {
+            $block = $source[$langKey];
+            if (is_array($block)) {
+                if (bo_cp_ingest_sections_block($block, $locales, $lang)) {
+                    $handled = true;
+                }
+            } else {
+                $valueStr = is_scalar($block) ? (string) $block : '';
+                if ($valueStr !== '') {
+                    bo_cp_merge_legacy_section($locales, $lang, 'overview', '', $valueStr);
+                    $handled = true;
+                }
+            }
+        }
+        return $handled;
+    }
+
+    foreach ($source as $secKey => $row) {
+        if ($secKey === 'lang' || $secKey === 'locale' || $secKey === 'language') {
+            continue;
+        }
+        $canonKey = $secKey === 'overview' ? 'overview' : bo_cp_canon_key((string) $secKey);
+        if ($canonKey === '') {
+            continue;
+        }
+
+        $lang = '';
+        if (is_array($row) && isset($row['lang'])) {
+            $lang = bo_cp_normalize_lang_key($row['lang']);
+        } elseif (is_array($row) && isset($row['locale'])) {
+            $lang = bo_cp_normalize_lang_key($row['locale']);
+        }
+        if ($lang === '') {
+            $lang = $defaultLang !== '' ? $defaultLang : 'en';
+        }
+
+        if (is_array($row)) {
+            $title = is_scalar($row['title'] ?? null) ? (string) $row['title'] : '';
+            $content = '';
+            if (isset($row['content']) && is_scalar($row['content'])) {
+                $content = (string) $row['content'];
+            } elseif (isset($row['text']) && is_scalar($row['text'])) {
+                $content = (string) $row['text'];
+            }
+            bo_cp_merge_legacy_section($locales, $lang, $canonKey, $title, $content);
+            $handled = true;
+        } elseif (is_scalar($row)) {
+            bo_cp_merge_legacy_section($locales, $lang, $canonKey, '', (string) $row);
+            $handled = true;
+        }
+    }
+
+    return $handled;
+}}
+
 function bo_cp_persona_data_roots(): array {
     $roots = array();
 
@@ -158,60 +260,13 @@ function bo_cp_extract_dataset_locales(array $data): array {
 
     $locales = array();
 
+    $defaultLang = bo_cp_normalize_lang_key($data['lang'] ?? ($data['locale'] ?? ''));
+    if ($defaultLang === '') {
+        $defaultLang = 'en';
+    }
+
     if (isset($data['sections']) && is_array($data['sections'])) {
-        $sections = $data['sections'];
-        foreach ($sections as $secKey => $secVal) {
-            $canonKey = $secKey === 'overview' ? 'overview' : bo_cp_canon_key((string) $secKey);
-            if ($canonKey === '') {
-                continue;
-            }
-
-            if (is_array($secVal)) {
-                $isList = bo_cp_is_indexed_array($secVal);
-                if ($isList) {
-                    foreach ($secVal as $row) {
-                        if (!is_array($row)) {
-                            continue;
-                        }
-                        $lang = bo_cp_normalize_lang_key($row['lang'] ?? ($row['locale'] ?? ''));
-                        if ($lang === '') {
-                            continue;
-                        }
-                        $title = is_scalar($row['title'] ?? null) ? (string) $row['title'] : '';
-                        $content = is_scalar($row['content'] ?? null) ? (string) $row['content'] : '';
-                        bo_cp_merge_legacy_section($locales, $lang, $canonKey, $title, $content);
-                    }
-                } else {
-                    foreach ($secVal as $langKey => $langVal) {
-                        $lang = bo_cp_normalize_lang_key($langKey);
-                        if ($lang !== '') {
-                            if (is_array($langVal)) {
-                                $title = is_scalar($langVal['title'] ?? null) ? (string) $langVal['title'] : '';
-                                $content = is_scalar($langVal['content'] ?? null) ? (string) $langVal['content'] : '';
-                                if ($title === '' && isset($langVal['text']) && is_scalar($langVal['text'])) {
-                                    $content = (string) $langVal['text'];
-                                }
-                            } else {
-                                $title = '';
-                                $content = is_scalar($langVal) ? (string) $langVal : '';
-                            }
-                            bo_cp_merge_legacy_section($locales, $lang, $canonKey, $title, $content);
-                            continue;
-                        }
-
-                        if (is_string($langKey) && preg_match('/^(title|content)_([a-z]{2})$/i', $langKey, $m)) {
-                            $part = strtolower($m[1]);
-                            $lang = strtolower($m[2]);
-                            $value = is_scalar($langVal) ? (string) $langVal : '';
-                            bo_cp_merge_legacy_section($locales, $lang, $canonKey, $part === 'title' ? $value : '', $part === 'content' ? $value : '');
-                        }
-                    }
-                }
-            } elseif (is_scalar($secVal)) {
-                $content = (string) $secVal;
-                bo_cp_merge_legacy_section($locales, 'en', $canonKey, '', $content);
-            }
-        }
+        bo_cp_ingest_sections_block($data['sections'], $locales, $defaultLang);
     }
 
     foreach ($data as $key => $value) {
@@ -219,11 +274,28 @@ function bo_cp_extract_dataset_locales(array $data): array {
             continue;
         }
         $lower = strtolower($key);
+
+        if ($lower === 'overview' && is_scalar($value)) {
+            bo_cp_merge_legacy_section($locales, $defaultLang, 'overview', '', (string) $value);
+            continue;
+        }
+
+        if (preg_match('/^sections_([a-z]{2})$/', $lower, $m)) {
+            if (is_array($value)) {
+                bo_cp_ingest_sections_block($value, $locales, $m[1]);
+            }
+            continue;
+        }
+
         if (!preg_match('/^([a-z0-9_]+)_([a-z]{2})(?:_(title|content))?$/', $lower, $m)) {
             continue;
         }
         $maybeSection = $m[1];
         if (in_array($maybeSection, array('displaytitle', 'name', 'version'), true)) {
+            continue;
+        }
+        if ($maybeSection === 'sections' && is_array($value)) {
+            bo_cp_ingest_sections_block($value, $locales, $m[2]);
             continue;
         }
         $section = $maybeSection === 'overview' ? 'overview' : bo_cp_canon_key($maybeSection);
