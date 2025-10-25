@@ -268,12 +268,41 @@ class Lolo_Algorithm {
      * @return string persona key
      */
     public static function calculate_persona($lat, $lng, $birthdayYmd, $tz_id, $raw_off, $dst_off, $hour): string {
-        // 1) 构造“本地标准时”DateTime：用 tz_id，但用 rawOffset 推导的标准经线修正真太阳时
-        $tz = new DateTimeZone($tz_id ?: 'UTC');
-        $localStd = new DateTime($birthdayYmd . ' ' . sprintf('%02d:00:00', (int)$hour), $tz);
+        $tz_id  = is_string($tz_id) ? trim($tz_id) : '';
+        $raw_off = is_numeric($raw_off) ? (int) $raw_off : null;
+        $dst_off = is_numeric($dst_off) ? (int) $dst_off : 0;
 
-        // 2) 真太阳时：时区经线按 rawOffset（忽略 DST）
-        $timezoneOffsetHours = (int) round(((int)$raw_off) / 3600.0);
+        $hour = (int) $hour;
+        if ($hour < 0) { $hour = 0; }
+        if ($hour > 23) { $hour = $hour % 24; }
+
+        $timezoneOffsetHours = 0;
+        if ($tz_id !== '') {
+            try {
+                $tz = new DateTimeZone($tz_id);
+            } catch (Exception $e) {
+                $tz_id = '';
+            }
+        }
+
+        if ($tz_id !== '') {
+            $tz = new DateTimeZone($tz_id);
+            $localStd = new DateTime($birthdayYmd . ' ' . sprintf('%02d:00:00', $hour), $tz);
+            if ($raw_off === null) {
+                $raw_off = (int) ($tz->getOffset(new DateTime($birthdayYmd . ' 12:00:00', $tz)) - $dst_off);
+            }
+        } else {
+            if ($raw_off === null) {
+                $raw_off = (int) round(((float) $lng) / 15.0) * 3600;
+            }
+            $tz = new DateTimeZone('UTC');
+            $localStd = new DateTime($birthdayYmd . ' ' . sprintf('%02d:00:00', $hour), $tz);
+            if ($raw_off !== 0) {
+                $localStd->modify(sprintf('%+d seconds', $raw_off));
+            }
+        }
+
+        $timezoneOffsetHours = (int) round(((int) $raw_off) / 3600.0);
         $solar = self::true_solar_time($localStd, (float)$lng, $timezoneOffsetHours);
 
         // 3) 八字（以真太阳时计算）

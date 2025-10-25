@@ -262,6 +262,22 @@ function bo_cp_timezone_offsets_from_zone(DateTimeZone $tz, int $timestamp): arr
     return [$rawOffset, $dstOffset];
 }
 
+function bo_cp_estimate_timezone_from_longitude(float $lng): array {
+    $hours = (int) round($lng / 15.0);
+    $rawOffset = $hours * HOUR_IN_SECONDS;
+
+    return [
+        'status'     => 'OK',
+        'timeZoneId' => '',
+        'rawOffset'  => $rawOffset,
+        'dstOffset'  => 0,
+        'source'     => 'longitude_estimate',
+        'meta'       => [
+            'hours' => $hours,
+        ],
+    ];
+}
+
 function bo_cp_infer_timezone_from_php(float $lat, float $lng, int $timestamp, array $context = []) {
     $countryCode = '';
     if (!empty($context['country_code'])) {
@@ -345,17 +361,15 @@ function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp, array $co
         return $fallback;
     }
 
-    $googleData = $google->get_error_data();
-    if (!is_array($googleData)) {
-        $googleData = [];
-    }
-    $googleData['fallback'] = [
-        'code'    => $fallback->get_error_code(),
-        'message' => $fallback->get_error_message(),
-        'data'    => $fallback->get_error_data(),
-    ];
-
-    return new WP_Error($google->get_error_code(), $google->get_error_message(), $googleData);
+    $estimate = bo_cp_estimate_timezone_from_longitude($lng);
+    error_log('[bo-city-personality] Timezone longitude estimate used ' . wp_json_encode([
+        'lat'     => $lat,
+        'lng'     => $lng,
+        'country' => $context['country_code'] ?? '',
+        'reason'  => $google->get_error_code(),
+    ]));
+    set_transient($cache_name, $estimate, HOUR_IN_SECONDS * 6);
+    return $estimate;
 }
 
 function bo_cp_rest_geo_callback(WP_REST_Request $req) {
