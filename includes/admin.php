@@ -341,21 +341,31 @@ if (is_admin()) {
 
         public function get_columns(): array {
             return [
-                'cb'         => '<input type="checkbox" />',
-                'created_at' => __('Submitted', 'bo-city-personality'),
-                'persona'    => __('Persona', 'bo-city-personality'),
-                'lang'       => __('Language', 'bo-city-personality'),
-                'location'   => __('Location', 'bo-city-personality'),
-                'birth'      => __('Birth Info', 'bo-city-personality'),
-                'contact'    => __('Contact', 'bo-city-personality'),
+                'cb'          => '<input type="checkbox" />',
+                'created_at'  => __('Submitted', 'bo-city-personality'),
+                'persona'     => __('Persona', 'bo-city-personality'),
+                'lang'        => __('Language', 'bo-city-personality'),
+                'location'    => __('Location', 'bo-city-personality'),
+                'birth_date'  => __('Birth Date', 'bo-city-personality'),
+                'hour_slot'   => __('Hour Slot', 'bo-city-personality'),
+                'person_name' => __('Name', 'bo-city-personality'),
+                'gender'      => __('Gender', 'bo-city-personality'),
+                'email'       => __('Email', 'bo-city-personality'),
+                'ip'          => __('IP Address', 'bo-city-personality'),
             ];
         }
 
         protected function get_sortable_columns(): array {
             return [
-                'created_at' => ['created_at', true],
-                'persona'    => ['persona_key', false],
-                'lang'       => ['lang', false],
+                'created_at'  => ['created_at', true],
+                'persona'     => ['persona_key', false],
+                'lang'        => ['lang', false],
+                'birth_date'  => ['birth_date', false],
+                'hour_slot'   => ['hour_slot', false],
+                'person_name' => ['person_name', false],
+                'gender'      => ['gender', false],
+                'email'       => ['email', false],
+                'ip'          => ['ip', false],
             ];
         }
 
@@ -432,56 +442,78 @@ if (is_admin()) {
             return $out;
         }
 
-        protected function column_birth($item): string {
+        protected function column_birth_date($item): string {
             $date = (string) ($item['birth_date'] ?? '');
+            if ($date === '') {
+                return '&mdash;';
+            }
+            $ts = strtotime($date);
+            if ($ts) {
+                $formatted = date_i18n(get_option('date_format'), $ts);
+                return esc_html($formatted);
+            }
+            return esc_html($date);
+        }
+
+        protected function column_hour_slot($item): string {
             $slot = (string) ($item['hour_slot'] ?? '');
             $tz   = (string) ($item['tz_id'] ?? '');
             $raw  = isset($item['raw_offset']) ? intval($item['raw_offset']) : 0;
             $dst  = isset($item['dst_offset']) ? intval($item['dst_offset']) : 0;
 
-            $parts = [];
-            if ($date !== '') {
-                $parts[] = $date;
+            if ($slot === '') {
+                $slot_html = '&mdash;';
+            } else {
+                $slot_html = esc_html($slot);
             }
-            if ($slot !== '') {
-                $parts[] = sprintf(__('Hour slot: %s', 'bo-city-personality'), $slot);
-            }
-            $out = $parts ? esc_html(implode(' • ', $parts)) : '&mdash;';
 
-            $tz_info = [];
+            $tz_bits = [];
             if ($tz !== '') {
-                $tz_info[] = $tz;
+                $tz_bits[] = $tz;
             }
             if ($raw !== 0 || $dst !== 0) {
-                $tz_info[] = sprintf('UTC %+0.1f%s', ($raw / 3600), $dst ? (' (DST +' . ($dst / 3600) . ')') : '');
-            }
-            if ($tz_info) {
-                $out .= '<br /><span class="description">' . esc_html(implode(' • ', $tz_info)) . '</span>';
+                $offset = $raw / 3600;
+                $tz_bits[] = sprintf('UTC %+0.1f%s', $offset, $dst ? (' (DST +' . ($dst / 3600) . ')') : '');
             }
 
-            return $out;
+            if (!empty($tz_bits)) {
+                $slot_html .= '<br /><span class="description">' . esc_html(implode(' • ', $tz_bits)) . '</span>';
+            }
+
+            return $slot_html;
         }
 
-        protected function column_contact($item): string {
-            $name  = (string) ($item['person_name'] ?? '');
-            $email = (string) ($item['email'] ?? '');
-            $gender = (string) ($item['gender'] ?? '');
+        protected function column_person_name($item): string {
+            $name = (string) ($item['person_name'] ?? '');
+            if ($name === '') {
+                return '&mdash;';
+            }
+            return esc_html($name);
+        }
 
-            $lines = [];
-            if ($name !== '') {
-                $lines[] = esc_html($name);
+        protected function column_gender($item): string {
+            $gender = (string) ($item['gender'] ?? '');
+            if ($gender === '') {
+                return '&mdash;';
             }
-            if ($email !== '') {
-                $lines[] = '<a href="mailto:' . esc_attr($email) . '">' . esc_html($email) . '</a>';
+            return esc_html(ucwords(strtolower($gender)));
+        }
+
+        protected function column_email($item): string {
+            $email = (string) ($item['email'] ?? '');
+            if ($email === '') {
+                return '&mdash;';
             }
-            if ($gender !== '') {
-                $lines[] = '<span class="description">' . esc_html(ucwords($gender)) . '</span>';
-            }
+            $safe = esc_attr($email);
+            return '<a href="mailto:' . $safe . '">' . esc_html($email) . '</a>';
+        }
+
+        protected function column_ip($item): string {
             $ip = (string) ($item['ip'] ?? '');
-            if ($ip !== '') {
-                $lines[] = '<span class="description">IP: ' . esc_html($ip) . '</span>';
+            if ($ip === '') {
+                return '&mdash;';
             }
-            return $lines ? implode('<br />', $lines) : '&mdash;';
+            return esc_html($ip);
         }
 
         protected function column_default($item, $column_name) {
@@ -514,9 +546,15 @@ if (is_admin()) {
             $orderby_req = isset($_REQUEST['orderby']) ? sanitize_key($_REQUEST['orderby']) : 'created_at';
             $order_req = isset($_REQUEST['order']) ? strtoupper(sanitize_text_field($_REQUEST['order'])) : 'DESC';
             $allowed_orderby = [
-                'created_at' => 'created_at',
-                'persona_key'=> 'persona_key',
-                'lang'       => 'lang',
+                'created_at'  => 'created_at',
+                'persona_key' => 'persona_key',
+                'lang'        => 'lang',
+                'birth_date'  => 'birth_date',
+                'hour_slot'   => 'hour_slot',
+                'person_name' => 'person_name',
+                'gender'      => 'gender',
+                'email'       => 'email',
+                'ip'          => 'ip',
             ];
             $orderby = $allowed_orderby[$orderby_req] ?? 'created_at';
             $order = $order_req === 'ASC' ? 'ASC' : 'DESC';
@@ -525,8 +563,8 @@ if (is_admin()) {
             $params = [];
             if ($search !== '') {
                 $like = '%' . $wpdb->esc_like($search) . '%';
-                $where .= ' AND (persona_key LIKE %s OR country LIKE %s OR city LIKE %s OR email LIKE %s OR person_name LIKE %s)';
-                $params = array_fill(0, 5, $like);
+                $where .= ' AND (persona_key LIKE %s OR country LIKE %s OR city LIKE %s OR email LIKE %s OR person_name LIKE %s OR ip LIKE %s)';
+                $params = array_fill(0, 6, $like);
             }
 
             $count_sql = "SELECT COUNT(*) FROM {$table} {$where}";
