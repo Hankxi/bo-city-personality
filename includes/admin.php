@@ -642,6 +642,22 @@ function bo_cp_render_results_page() {
     $list_table->search_box(__('Search submissions', 'bo-city-personality'), 'bo-cp-results');
     echo '</form>';
 
+    $export_args = array(
+        'action'    => 'bo_cp_export_results',
+        'post_type' => 'city_persona',
+    );
+    if (!empty($_REQUEST['s'])) {
+        $export_args['s'] = sanitize_text_field((string) wp_unslash($_REQUEST['s']));
+    }
+    if (!empty($_REQUEST['orderby'])) {
+        $export_args['orderby'] = sanitize_key((string) $_REQUEST['orderby']);
+    }
+    if (!empty($_REQUEST['order'])) {
+        $export_args['order'] = strtoupper(sanitize_text_field((string) $_REQUEST['order']));
+    }
+    $export_url = wp_nonce_url(add_query_arg($export_args, admin_url('admin-post.php')), 'bo_cp_export_results');
+    echo '<p><a class="button button-secondary" href="' . esc_url($export_url) . '">' . esc_html__('Export CSV', 'bo-city-personality') . '</a></p>';
+
     echo '<form method="post">';
     echo '<input type="hidden" name="post_type" value="city_persona" />';
     echo '<input type="hidden" name="page" value="bo-cp-results" />';
@@ -657,6 +673,141 @@ function bo_cp_render_results_page() {
 add_action('admin_menu', function () {
     add_submenu_page('edit.php?post_type=city_persona','Persona Submissions','Persona Submissions','manage_options','bo-cp-results','bo_cp_render_results_page');
     add_submenu_page('edit.php?post_type=city_persona','Import from Data','Import from Data','edit_posts','bo-cp-sync','bo_cp_render_sync_page');
+});
+
+add_action('admin_post_bo_cp_export_results', function () {
+    if (! current_user_can('manage_options')) {
+        wp_die(__('Insufficient permissions.', 'bo-city-personality'));
+    }
+
+    check_admin_referer('bo_cp_export_results');
+
+    global $wpdb;
+    bo_cp_ensure_results_table();
+    $table = bo_cp_results_table_name();
+
+    $search = isset($_GET['s']) ? trim((string) wp_unslash($_GET['s'])) : '';
+    $orderby_req = isset($_GET['orderby']) ? sanitize_key((string) $_GET['orderby']) : 'created_at';
+    $order_req = isset($_GET['order']) ? strtoupper(sanitize_text_field((string) $_GET['order'])) : 'DESC';
+
+    $allowed_orderby = [
+        'created_at'  => 'created_at',
+        'persona_key' => 'persona_key',
+        'lang'        => 'lang',
+        'birth_date'  => 'birth_date',
+        'hour_slot'   => 'hour_slot',
+        'person_name' => 'person_name',
+        'gender'      => 'gender',
+        'email'       => 'email',
+        'ip'          => 'ip',
+    ];
+
+    $orderby = $allowed_orderby[$orderby_req] ?? 'created_at';
+    $order = $order_req === 'ASC' ? 'ASC' : 'DESC';
+
+    $where = 'WHERE 1=1';
+    $params = [];
+    if ($search !== '') {
+        $like = '%' . $wpdb->esc_like($search) . '%';
+        $where .= ' AND (persona_key LIKE %s OR country LIKE %s OR city LIKE %s OR email LIKE %s OR person_name LIKE %s OR ip LIKE %s)';
+        $params = array_fill(0, 6, $like);
+    }
+
+    $items_sql = "SELECT * FROM {$table} {$where} ORDER BY {$orderby} {$order}";
+    if ($params) {
+        $items_sql = $wpdb->prepare($items_sql, ...$params);
+    }
+
+    $rows = $wpdb->get_results($items_sql, ARRAY_A);
+
+    nocache_headers();
+    $filename = 'persona-submissions-' . date_i18n('Y-m-d') . '.csv';
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=' . $filename);
+
+    $output = fopen('php://output', 'w');
+    if (!$output) {
+        wp_die(__('Unable to open export stream.', 'bo-city-personality'));
+    }
+
+    // BOM for Excel UTF-8 support.
+    fprintf($output, "%s", chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+    $headers = [
+        'ID',
+        __('Submitted (UTC)', 'bo-city-personality'),
+        __('Submitted (Local)', 'bo-city-personality'),
+        __('Persona Title', 'bo-city-personality'),
+        __('Persona Key', 'bo-city-personality'),
+        __('Language', 'bo-city-personality'),
+        __('Country', 'bo-city-personality'),
+        __('City', 'bo-city-personality'),
+        __('Latitude', 'bo-city-personality'),
+        __('Longitude', 'bo-city-personality'),
+        __('Birth Date', 'bo-city-personality'),
+        __('Hour Slot', 'bo-city-personality'),
+        __('Timezone ID', 'bo-city-personality'),
+        __('Raw Offset (s)', 'bo-city-personality'),
+        __('DST Offset (s)', 'bo-city-personality'),
+        __('Name', 'bo-city-personality'),
+        __('Gender', 'bo-city-personality'),
+        __('Email', 'bo-city-personality'),
+        __('IP Address', 'bo-city-personality'),
+        __('User Agent', 'bo-city-personality'),
+        __('Meta', 'bo-city-personality'),
+    ];
+    fputcsv($output, $headers);
+
+    foreach ($rows as $row) {
+        $persona_key = bo_cp_canon_key((string) ($row['persona_key'] ?? ''));
+        $lang = sanitize_key($row['lang'] ?? '');
+        $title = '';
+        if ($persona_key !== '') {
+            $title = bo_cp_persona_display_title($persona_key, $lang ?: 'en');
+            if ($title === '') {
+                $title = $persona_key;
+            }
+        }
+
+        $created_utc = (string) ($row['created_at'] ?? '');
+        $created_local = '';
+        if ($created_utc !== '') {
+            $created_local = get_date_from_gmt($created_utc, 'Y-m-d H:i:s');
+        }
+
+        $meta_raw = $row['meta'] ?? '';
+        if (is_array($meta_raw)) {
+            $meta_raw = wp_json_encode($meta_raw);
+        }
+
+        $line = [
+            (string) ($row['id'] ?? ''),
+            $created_utc,
+            $created_local,
+            $title,
+            $persona_key,
+            strtoupper($lang),
+            (string) ($row['country'] ?? ''),
+            (string) ($row['city'] ?? ''),
+            isset($row['lat']) ? (string) $row['lat'] : '',
+            isset($row['lng']) ? (string) $row['lng'] : '',
+            (string) ($row['birth_date'] ?? ''),
+            (string) ($row['hour_slot'] ?? ''),
+            (string) ($row['tz_id'] ?? ''),
+            isset($row['raw_offset']) ? (string) $row['raw_offset'] : '',
+            isset($row['dst_offset']) ? (string) $row['dst_offset'] : '',
+            (string) ($row['person_name'] ?? ''),
+            (string) ($row['gender'] ?? ''),
+            (string) ($row['email'] ?? ''),
+            (string) ($row['ip'] ?? ''),
+            (string) ($row['user_agent'] ?? ''),
+            (string) $meta_raw,
+        ];
+        fputcsv($output, $line);
+    }
+
+    fclose($output);
+    exit;
 });
 
 function bo_cp_render_sync_page() {
