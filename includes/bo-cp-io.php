@@ -16,6 +16,12 @@ if (!function_exists('bo_cp_is_indexed_array')) {
 function bo_cp_is_indexed_array(array $value): bool {
     $expected = 0;
     foreach ($value as $key => $_) {
+        if (!is_int($key)) {
+            if (!is_string($key) || !ctype_digit($key)) {
+                return false;
+            }
+            $key = (int) $key;
+        }
         if ($key !== $expected) {
             return false;
         }
@@ -161,7 +167,7 @@ function bo_cp_extract_dataset_locales(array $data): array {
             }
 
             if (is_array($secVal)) {
-                $isList = array_keys($secVal) === range(0, count($secVal) - 1);
+                $isList = bo_cp_is_indexed_array($secVal);
                 if ($isList) {
                     foreach ($secVal as $row) {
                         if (!is_array($row)) {
