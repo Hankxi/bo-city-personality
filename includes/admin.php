@@ -354,6 +354,7 @@ add_action('admin_post_bo_cp_sync_run', function () {
     $roots = bo_cp_persona_data_roots();
 
     $synced = 0; $errors = 0; $notes = array();
+    $processed_keys = array();
     $skip_update_existing = !empty($_POST['skip_update_existing']);
 
     foreach ($roots as $root) {
@@ -368,6 +369,9 @@ add_action('admin_post_bo_cp_sync_run', function () {
 
             $key_raw = (string) $data['name'];
             $persona_key = bo_cp_canon_key($key_raw);
+            if ($persona_key !== '') {
+                $processed_keys[] = $persona_key;
+            }
             $dispMap = bo_cp_extract_display_titles($data);
 
             $locales_meta = array();
@@ -382,83 +386,40 @@ add_action('admin_post_bo_cp_sync_run', function () {
                     $sections_source = $localeData['sections'];
                 }
 
-                if (!empty($sections_source)) {
-                    if (bo_cp_is_indexed_array($sections_source)) {
-                        foreach ($sections_source as $row) {
-                            if (!is_array($row)) {
-                                continue;
-                            }
-                            $rowKey = isset($row['key']) ? (string)$row['key'] : '';
-                            $canon  = $rowKey === 'overview' ? 'overview' : bo_cp_canon_key($rowKey);
-                            $title  = is_scalar($row['title'] ?? null) ? (string) $row['title'] : '';
-                            $content = '';
-                            if (isset($row['content']) && is_scalar($row['content'])) {
-                                $content = (string) $row['content'];
-                            } elseif (isset($row['text']) && is_scalar($row['text'])) {
-                                $content = (string) $row['text'];
-                            }
+                if (!empty($sections_source) && is_array($sections_source)) {
+                    foreach ($sections_source as $secKey => $secVal) {
+                        $rawKey = is_string($secKey) ? $secKey : '';
+                        $canonKey = $rawKey === 'overview' ? 'overview' : ($rawKey !== '' ? bo_cp_canon_key($rawKey) : '');
 
-                            if ($canon === 'overview') {
-                                if ($content !== '') {
-                                    $overview_content = $content;
-                                }
-                                continue;
+                        $title = '';
+                        $content = '';
+                        if (is_array($secVal)) {
+                            if (isset($secVal['title']) && is_scalar($secVal['title'])) {
+                                $title = (string) $secVal['title'];
                             }
-
-                            if ($canon === '') {
-                                continue;
+                            if (isset($secVal['content']) && is_scalar($secVal['content'])) {
+                                $content = (string) $secVal['content'];
                             }
-
-                            $sections_input[] = array(
-                                'key'     => $canon,
-                                'title'   => $title,
-                                'content' => $content,
-                            );
+                        } elseif (is_scalar($secVal)) {
+                            $content = (string) $secVal;
                         }
-                    } else {
-                        foreach ($sections_source as $secKey => $secVal) {
-                            $rawKey = '';
-                            if (is_string($secKey)) {
-                                $rawKey = $secKey;
-                            }
-                            if (is_array($secVal) && isset($secVal['key']) && is_scalar($secVal['key'])) {
-                                $rawKey = (string) $secVal['key'];
-                            }
 
-                            $canonKey = $rawKey === 'overview' ? 'overview' : ($rawKey !== '' ? bo_cp_canon_key($rawKey) : '');
-
-                            $title = '';
-                            $content = '';
-                            if (is_array($secVal)) {
-                                if (isset($secVal['title']) && is_scalar($secVal['title'])) {
-                                    $title = (string) $secVal['title'];
-                                }
-                                if (isset($secVal['content']) && is_scalar($secVal['content'])) {
-                                    $content = (string) $secVal['content'];
-                                } elseif (isset($secVal['text']) && is_scalar($secVal['text'])) {
-                                    $content = (string) $secVal['text'];
-                                }
-                            } elseif (is_scalar($secVal)) {
-                                $content = (string) $secVal;
+                        if ($canonKey === 'overview') {
+                            if ($content !== '') {
+                                $overview_content = $content;
                             }
-
-                            if ($canonKey === 'overview') {
-                                if ($content !== '') {
-                                    $overview_content = $content;
-                                }
-                                continue;
-                            }
-
-                            if ($canonKey === '') {
-                                continue;
-                            }
-
-                            $sections_input[] = array(
-                                'key'     => $canonKey,
-                                'title'   => $title,
-                                'content' => $content,
-                            );
+                            continue;
                         }
+
+                        if ($canonKey === '') {
+                            continue;
+                        }
+
+                        $sections_input[] = array(
+                            'key'     => $canonKey,
+                            'title'   => $title,
+                            'content' => $content,
+                        );
                     }
                 }
 
@@ -508,6 +469,52 @@ add_action('admin_post_bo_cp_sync_run', function () {
             update_post_meta($post_id, 'locales', $locales_meta);
             $synced++;
         }
+    }
+
+    $processed_keys = array_values(array_unique(array_filter($processed_keys)));
+
+    $removed_posts = 0;
+    $existing_posts = get_posts(array(
+        'post_type'      => 'city_persona',
+        'post_status'    => array('publish','draft','pending','private'),
+        'numberposts'    => -1,
+        'fields'         => 'ids',
+        'no_found_rows'  => true,
+    ));
+    foreach ($existing_posts as $post_id) {
+        $existing_key = bo_cp_canon_key((string) get_post_meta($post_id, 'persona_key', true));
+        if ($existing_key === '' || in_array($existing_key, $processed_keys, true)) {
+            continue;
+        }
+        wp_delete_post($post_id, true);
+        $removed_posts++;
+    }
+
+    $removed_files = 0;
+    foreach (bo_cp_persona_data_roots() as $root) {
+        if (!is_dir($root)) {
+            continue;
+        }
+        $files = glob($root . '*.php');
+        if (!is_array($files)) {
+            continue;
+        }
+        foreach ($files as $file) {
+            $file_key = bo_cp_canon_key(basename($file, '.php'));
+            if ($file_key === '' || in_array($file_key, $processed_keys, true)) {
+                continue;
+            }
+            if (@unlink($file)) {
+                $removed_files++;
+            }
+        }
+    }
+
+    if ($removed_posts > 0) {
+        $notes[] = $removed_posts . ' old personas removed';
+    }
+    if ($removed_files > 0) {
+        $notes[] = $removed_files . ' orphaned data files deleted';
     }
 
     $args = array(
