@@ -99,9 +99,10 @@ class BO_CP_Shortcodes {
             'show_title' => 'yes',
         ], $atts, $tag);
 
-        $persona = trim((string) $atts['persona']);
+        $personaRaw = trim((string) $atts['persona']);
+        $persona = $personaRaw;
         $sectionKey = trim((string) $atts['key']);
-        if ($persona === '' || $sectionKey === '') {
+        if ($sectionKey === '') {
             return '';
         }
 
@@ -116,12 +117,32 @@ class BO_CP_Shortcodes {
             $fallback = 'en';
         }
 
-        $personaKey = bo_cp_canon_key($persona);
         $normalizedSection = ($sectionKey === 'overview') ? 'overview' : bo_cp_canon_key($sectionKey);
         if ($normalizedSection === '') {
             return '';
         }
 
+        $isDynamicPersona = false;
+        if ($persona === '' || strtolower($personaRaw) === 'name') {
+            $isDynamicPersona = true;
+        }
+
+        if ($isDynamicPersona) {
+            wp_enqueue_script('bo-cp-form');
+            wp_enqueue_style('bo-cp-form');
+
+            $showTitle = strtolower($atts['show_title']);
+            $class = 'bo-cp-section-output bo-cp-section-' . sanitize_html_class($normalizedSection) . ' bo-cp-section-dynamic';
+            $html  = '<div class="' . esc_attr($class) . '"'
+                . ' data-bo-cp-dynamic="1"'
+                . ' data-section="' . esc_attr($normalizedSection) . '"'
+                . ' data-lang="' . esc_attr($lang) . '"'
+                . ' data-fallback="' . esc_attr($fallback) . '"'
+                . ' data-show-title="' . esc_attr($showTitle) . '"></div>';
+            return $html;
+        }
+
+        $personaKey = bo_cp_canon_key($persona);
         $resolvedLang = $lang;
 
         $sections = bo_cp_load_sections($personaKey, $lang);
