@@ -366,8 +366,11 @@
     const params = new URLSearchParams();
     params.set('input', query);
     params.set('lang', detectLang());
-    if (countryInput && countryInput.dataset.code) {
-      params.set('country', countryInput.dataset.code);
+    if (countryInput) {
+      const code = countryInput.dataset.code || countryInput.value.trim();
+      if (code) {
+        params.set('country', code);
+      }
     }
     const controller = new AbortController();
     cityAbort = controller;

@@ -262,7 +262,6 @@ if (!function_exists('bo_cp_form_strings')) {
             ''        => 'Prefer not to say',
             'female'  => 'Female',
             'male'    => 'Male',
-            'other'   => 'Other',
         ];
 
         $strings = [
@@ -321,7 +320,6 @@ if (!function_exists('bo_cp_form_strings')) {
                 ''        => '不透露',
                 'female'  => '女性',
                 'male'    => '男性',
-                'other'   => '其他',
             ];
             $strings = array_merge($strings, [
                 'country_label'        => '国家/地区',

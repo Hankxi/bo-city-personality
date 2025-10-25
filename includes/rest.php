@@ -418,25 +418,76 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
     $country_code = strtoupper($normalized['code'] ?? '');
 
     $response = bo_cp_google_places_autocomplete($input, $lang, $country_code);
-    if (is_wp_error($response)) {
-        return $response;
+    $predictions = [];
+    $response_status = '';
+    if (!is_wp_error($response)) {
+        $response_status = (string) ($response['status'] ?? '');
+        if ($response_status === 'OK') {
+            foreach (($response['predictions'] ?? []) as $prediction) {
+                if (!is_array($prediction)) {
+                    continue;
+                }
+                $description = (string) ($prediction['description'] ?? '');
+                if ($description === '') {
+                    continue;
+                }
+                $predictions[] = [
+                    'place_id'    => (string) ($prediction['place_id'] ?? ''),
+                    'description' => $description,
+                    'matched_substrings' => $prediction['matched_substrings'] ?? [],
+                    'terms'       => $prediction['terms'] ?? [],
+                ];
+            }
+        }
     }
 
-    $predictions = [];
-    foreach (($response['predictions'] ?? []) as $prediction) {
-        if (!is_array($prediction)) {
-            continue;
+    if (empty($predictions)) {
+        $fallback_query = $input;
+        if ($country_code !== '') {
+            $fallback_query .= ', ' . $country_code;
         }
-        $description = (string) ($prediction['description'] ?? '');
-        if ($description === '') {
-            continue;
+        $fallback = bo_cp_google_places_request('textsearch', [
+            'query'    => $fallback_query,
+            'language' => $lang,
+            'type'     => 'locality',
+        ], 'suggest_text_' . $lang . '_' . $country_code . '_' . $input);
+
+        if (!is_wp_error($fallback) && ($fallback['status'] ?? '') === 'OK') {
+            foreach (($fallback['results'] ?? []) as $result) {
+                if (!is_array($result)) {
+                    continue;
+                }
+                $name = trim((string) ($result['name'] ?? ''));
+                $address = trim((string) ($result['formatted_address'] ?? ''));
+                $description = $name !== '' ? $name : $address;
+                if ($description === '') {
+                    continue;
+                }
+                if ($name !== '' && $address !== '' && stripos($address, $name) === false) {
+                    $description = $name . ', ' . $address;
+                } elseif ($name !== '' && $address !== '' && stripos($address, $name) !== false) {
+                    $description = $address;
+                }
+                $predictions[] = [
+                    'place_id'    => (string) ($result['place_id'] ?? ''),
+                    'description' => $description,
+                    'matched_substrings' => [],
+                    'terms'       => [],
+                ];
+                if (count($predictions) >= 8) {
+                    break;
+                }
+            }
+        } elseif (is_wp_error($fallback)) {
+            if (is_wp_error($response)) {
+                return $fallback;
+            }
+            error_log('[bo-city-personality] City suggestion fallback failed: ' . $fallback->get_error_message());
         }
-        $predictions[] = [
-            'place_id'    => (string) ($prediction['place_id'] ?? ''),
-            'description' => $description,
-            'matched_substrings' => $prediction['matched_substrings'] ?? [],
-            'terms'       => $prediction['terms'] ?? [],
-        ];
+    }
+
+    if (empty($predictions) && is_wp_error($response)) {
+        return $response;
     }
 
     return [
