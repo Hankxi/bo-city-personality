@@ -34,13 +34,19 @@
 
     const canonPersona = canonKey(persona);
     const normalizedLang = (lang || 'en').toLowerCase();
-    if (!state.sectionsCache[normalizedLang]) {
-      state.sectionsCache[normalizedLang] = {};
+
+    if (!state.sectionsCache[canonPersona]) {
+      state.sectionsCache[canonPersona] = {};
     }
-    const langCache = state.sectionsCache[normalizedLang];
+    if (!state.sectionsCache[canonPersona][normalizedLang]) {
+      state.sectionsCache[canonPersona][normalizedLang] = {};
+    }
+
+    const langCache = state.sectionsCache[canonPersona][normalizedLang];
 
     const missing = keys.filter((k) => !(k in langCache));
     if (missing.length) {
+      let fetched = false;
       try {
         const params = new URLSearchParams({
           persona: canonPersona,
@@ -55,15 +61,20 @@
               langCache[key] = value || { title: '', content_html: '' };
             });
           }
+          fetched = true;
+        } else {
+          console.error('Failed to fetch sections', res.status, res.statusText);
         }
       } catch (err) {
         console.error('Failed to fetch sections', err);
       }
-      missing.forEach((key) => {
-        if (!(key in langCache)) {
-          langCache[key] = { title: '', content_html: '' };
-        }
-      });
+      if (fetched) {
+        missing.forEach((key) => {
+          if (!(key in langCache)) {
+            langCache[key] = { title: '', content_html: '' };
+          }
+        });
+      }
     }
 
     const out = {};

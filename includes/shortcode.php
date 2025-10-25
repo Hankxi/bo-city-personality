@@ -12,7 +12,7 @@ class BO_CP_Shortcodes {
     }
 
     public static function assets() {
-        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.0', true);
+        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.1', true);
         wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.0.0');
     }
 
