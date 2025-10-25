@@ -12,7 +12,7 @@ class BO_CP_Shortcodes {
     }
 
     public static function assets() {
-        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.1', true);
+        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.2', true);
         wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.0.0');
     }
 
@@ -78,12 +78,6 @@ class BO_CP_Shortcodes {
           <div id="bo-cp-result" style="display:none;">
             <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-name"></span></div>
             <div id="bo-cp-overview"></div>
-            <div class="row">
-              <label>Load section by key</label>
-              <input type="text" id="bo-cp-section-key" placeholder="love / career / health">
-              <button id="bo-cp-load-section">Load Section</button>
-            </div>
-            <div id="bo-cp-section-html"></div>
           </div>
         </div>
         <?php
