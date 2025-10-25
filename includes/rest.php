@@ -88,6 +88,7 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
     $query = trim($city . ', ' . $country);
     $result = null;
     $components = [];
+    $countryCode = '';
     $used_geocode = false;
 
     if ($place_id === '') {
@@ -164,6 +165,9 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
         $types = $comp['types'] ?? [];
         if (in_array('country', $types, true)) {
             $parsedCountry = $comp['long_name'];
+            if (!empty($comp['short_name'])) {
+                $countryCode = strtoupper($comp['short_name']);
+            }
         }
         if (!$parsedCity && (in_array('locality', $types, true) || in_array('administrative_area_level_1', $types, true) || in_array('administrative_area_level_2', $types, true))) {
             $parsedCity = $comp['long_name'];
@@ -175,13 +179,14 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
         'lat'               => (float) ($loc['lat'] ?? 0),
         'lng'               => (float) ($loc['lng'] ?? 0),
         'country'           => $parsedCountry,
+        'country_code'      => $countryCode,
         'city'              => $parsedCity,
         'name'              => $result['name'] ?? ($result['formatted_address'] ?? ($used_geocode ? $query : '')),
         'formatted_address' => $result['formatted_address'] ?? $query,
     ];
 }
 
-function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp) {
+function bo_cp_google_timezone_request(float $lat, float $lng, int $timestamp) {
     $api_key = bo_cp_google_api_key('timezone');
     if ($api_key === '') {
         $api_key = bo_cp_google_api_key('places');
@@ -189,11 +194,7 @@ function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp) {
     if (!$api_key) {
         return new WP_Error('config_error', 'Google API key not configured.', ['status' => 500]);
     }
-    $cache_name = 'bo_cp_tz_' . md5($lat . '|' . $lng . '|' . $timestamp);
-    $cached = get_transient($cache_name);
-    if (is_array($cached)) {
-        return $cached;
-    }
+
     $query_args = [
         'location'  => $lat . ',' . $lng,
         'timestamp' => $timestamp,
@@ -228,8 +229,133 @@ function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp) {
             ]
         );
     }
-    set_transient($cache_name, $body, HOUR_IN_SECONDS * 6);
+    $body['source'] = 'google';
     return $body;
+}
+
+function bo_cp_timezone_offsets_from_zone(DateTimeZone $tz, int $timestamp): array {
+    $now = new DateTime('@' . $timestamp);
+    $currentOffset = (int) $tz->getOffset($now);
+    $rawOffset = $currentOffset;
+    $dstOffset = 0;
+
+    $rangeStart = $timestamp - YEAR_IN_SECONDS;
+    $rangeEnd   = $timestamp + YEAR_IN_SECONDS;
+    $transitions = $tz->getTransitions($rangeStart, $rangeEnd);
+    $lastStandard = null;
+    foreach ($transitions as $transition) {
+        if (($transition['ts'] ?? 0) > $timestamp) {
+            break;
+        }
+        if (empty($transition['isdst'])) {
+            $lastStandard = (int) ($transition['offset'] ?? $currentOffset);
+        }
+    }
+    if ($lastStandard !== null) {
+        $rawOffset = $lastStandard;
+    }
+    $dstOffset = $currentOffset - $rawOffset;
+    if (abs($dstOffset) < 1) {
+        $dstOffset = 0;
+    }
+
+    return [$rawOffset, $dstOffset];
+}
+
+function bo_cp_infer_timezone_from_php(float $lat, float $lng, int $timestamp, array $context = []) {
+    $countryCode = '';
+    if (!empty($context['country_code'])) {
+        $countryCode = strtoupper((string) $context['country_code']);
+    }
+
+    $candidates = [];
+    if ($countryCode !== '') {
+        try {
+            $candidates = DateTimeZone::listIdentifiers(DateTimeZone::PER_COUNTRY, $countryCode);
+        } catch (Exception $e) {
+            $candidates = [];
+        }
+    }
+    if (!$candidates) {
+        $candidates = DateTimeZone::listIdentifiers();
+    }
+
+    $bestId = '';
+    $bestDist = PHP_FLOAT_MAX;
+    $bestTz = null;
+    foreach ($candidates as $id) {
+        try {
+            $tz = new DateTimeZone($id);
+        } catch (Exception $e) {
+            continue;
+        }
+        $loc = $tz->getLocation();
+        if (!is_array($loc) || !isset($loc['latitude'], $loc['longitude'])) {
+            continue;
+        }
+        $dist = bo_cp_geo_distance_km($lat, $lng, (float) $loc['latitude'], (float) $loc['longitude']);
+        if ($dist < $bestDist) {
+            $bestDist = $dist;
+            $bestId = $id;
+            $bestTz = $tz;
+        }
+    }
+
+    if (!$bestId || !$bestTz) {
+        return new WP_Error('timezone_error', 'Unable to infer timezone from coordinates.', ['status' => 502]);
+    }
+
+    list($rawOffset, $dstOffset) = bo_cp_timezone_offsets_from_zone($bestTz, $timestamp);
+
+    return [
+        'status'     => 'OK',
+        'timeZoneId' => $bestId,
+        'rawOffset'  => $rawOffset,
+        'dstOffset'  => $dstOffset,
+        'source'     => 'php_fallback',
+        'meta'       => [
+            'distance_km'  => $bestDist,
+            'country_code' => $countryCode,
+        ],
+    ];
+}
+
+function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp, array $context = []) {
+    $cache_name = 'bo_cp_tz_' . md5($lat . '|' . $lng . '|' . $timestamp);
+    $cached = get_transient($cache_name);
+    if (is_array($cached)) {
+        return $cached;
+    }
+
+    $google = bo_cp_google_timezone_request($lat, $lng, $timestamp);
+    if (!is_wp_error($google)) {
+        set_transient($cache_name, $google, HOUR_IN_SECONDS * 6);
+        return $google;
+    }
+
+    $fallback = bo_cp_infer_timezone_from_php($lat, $lng, $timestamp, $context);
+    if (!is_wp_error($fallback)) {
+        error_log('[bo-city-personality] Timezone fallback used ' . wp_json_encode([
+            'lat'     => $lat,
+            'lng'     => $lng,
+            'country' => $context['country_code'] ?? '',
+            'reason'  => $google->get_error_code(),
+        ]));
+        set_transient($cache_name, $fallback, HOUR_IN_SECONDS * 6);
+        return $fallback;
+    }
+
+    $googleData = $google->get_error_data();
+    if (!is_array($googleData)) {
+        $googleData = [];
+    }
+    $googleData['fallback'] = [
+        'code'    => $fallback->get_error_code(),
+        'message' => $fallback->get_error_message(),
+        'data'    => $fallback->get_error_data(),
+    ];
+
+    return new WP_Error($google->get_error_code(), $google->get_error_message(), $googleData);
 }
 
 function bo_cp_rest_geo_callback(WP_REST_Request $req) {
@@ -269,7 +395,7 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
 
     $parts = explode('-', $birth_date);
     $timestamp = gmmktime(12, 0, 0, intval($parts[1]), intval($parts[2]), intval($parts[0]));
-    $tz = bo_cp_lookup_timezone($lat, $lng, $timestamp);
+    $tz = bo_cp_lookup_timezone($lat, $lng, $timestamp, $place);
     if (is_wp_error($tz)) {
         return $tz;
     }
@@ -288,6 +414,7 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
         'persona_key' => $persona_key,
         'lang'        => $lang,
         'country'     => $place['country'],
+        'country_code'=> $place['country_code'] ?? '',
         'city'        => $place['city'],
         'birth_date'  => $birth_date,
         'hour_slot'   => $hour_slot,
@@ -308,6 +435,7 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
         'place_name'        => $place['name'],
         'formatted_address' => $place['formatted_address'],
         'timezone_raw'      => $tz,
+        'timezone_source'   => $tz['source'] ?? 'google',
     ]);
 
     if ($result_id <= 0) {

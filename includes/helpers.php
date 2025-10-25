@@ -49,6 +49,21 @@ if (!function_exists('bo_cp_google_api_key')) {
     }
 }
 
+if (!function_exists('bo_cp_geo_distance_km')) {
+    function bo_cp_geo_distance_km(float $lat1, float $lng1, float $lat2, float $lng2): float {
+        $radius = 6371.0; // km
+        $lat1r = deg2rad($lat1);
+        $lat2r = deg2rad($lat2);
+        $deltaLat = $lat2r - $lat1r;
+        $deltaLng = deg2rad($lng2 - $lng1);
+
+        $a = sin($deltaLat / 2) * sin($deltaLat / 2)
+            + cos($lat1r) * cos($lat2r) * sin($deltaLng / 2) * sin($deltaLng / 2);
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        return $radius * $c;
+    }
+}
+
 // ---------- JSON response ----------
 if (!function_exists('bo_cp_json_response')) {
     function bo_cp_json_response($data, $status = 200) {
