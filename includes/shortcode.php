@@ -51,7 +51,7 @@ class BO_CP_Shortcodes {
                     $code = $country['code'];
                     $name = $country['name'];
                     $display = $country['display'];
-                    $values = array_unique(array_filter([$display, $name, $code]));
+                    $values = array_unique(array_filter([$display, $name]));
                     foreach ($values as $value) {
                         $key = strtolower($value . '|' . $code);
                         if (isset($rendered[$key])) {

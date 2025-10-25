@@ -94,6 +94,28 @@ if (!function_exists('bo_cp_mb_lower')) {
     }
 }
 
+if (!function_exists('bo_cp_top_country_codes')) {
+    function bo_cp_top_country_codes(): array {
+        static $codes = null;
+        if (is_array($codes)) {
+            return $codes;
+        }
+        $codes = [
+            'CN','IN','US','ID','PK','NG','BR','BD','RU','MX',
+            'JP','ET','PH','EG','VN','CD','IR','TR','DE','TH',
+            'GB','FR','IT','ZA','TZ','MM','KE','CO','ES','UG',
+            'AR','DZ','SD','UA','IQ','AF','PL','CA','MA','SA',
+            'UZ','PE','AO','MY','MZ','GH','YE','NP','VE','MG',
+            'CM','CI','KR','SY','RO','KZ','MW','CL','ZM','GT',
+            'EC','TD','SO','SN','KH','ZW','GN','RW','BJ','BI',
+            'TN','BO','HT','BE','SS','DO','CZ','GR','JO','PT',
+            'AZ','SE','HN','AE','HU','TJ','BY','AT','CH','IL',
+            'PG','RS','TG','SL','LA','PY','BG','AU','NI','KG',
+        ];
+        return $codes;
+    }
+}
+
 if (!function_exists('bo_cp_country_catalog')) {
     function bo_cp_country_catalog(): array {
         static $cache = null;
@@ -122,14 +144,120 @@ if (!function_exists('bo_cp_country_catalog')) {
             }
         }
 
+        $top_names = [
+            'CN' => 'China',
+            'IN' => 'India',
+            'US' => 'United States',
+            'ID' => 'Indonesia',
+            'PK' => 'Pakistan',
+            'NG' => 'Nigeria',
+            'BR' => 'Brazil',
+            'BD' => 'Bangladesh',
+            'RU' => 'Russia',
+            'MX' => 'Mexico',
+            'JP' => 'Japan',
+            'ET' => 'Ethiopia',
+            'PH' => 'Philippines',
+            'EG' => 'Egypt',
+            'VN' => 'Vietnam',
+            'CD' => 'Democratic Republic of the Congo',
+            'IR' => 'Iran',
+            'TR' => 'Turkey',
+            'DE' => 'Germany',
+            'TH' => 'Thailand',
+            'GB' => 'United Kingdom',
+            'FR' => 'France',
+            'IT' => 'Italy',
+            'ZA' => 'South Africa',
+            'TZ' => 'Tanzania',
+            'MM' => 'Myanmar',
+            'KE' => 'Kenya',
+            'CO' => 'Colombia',
+            'ES' => 'Spain',
+            'UG' => 'Uganda',
+            'AR' => 'Argentina',
+            'DZ' => 'Algeria',
+            'SD' => 'Sudan',
+            'UA' => 'Ukraine',
+            'IQ' => 'Iraq',
+            'AF' => 'Afghanistan',
+            'PL' => 'Poland',
+            'CA' => 'Canada',
+            'MA' => 'Morocco',
+            'SA' => 'Saudi Arabia',
+            'UZ' => 'Uzbekistan',
+            'PE' => 'Peru',
+            'AO' => 'Angola',
+            'MY' => 'Malaysia',
+            'MZ' => 'Mozambique',
+            'GH' => 'Ghana',
+            'YE' => 'Yemen',
+            'NP' => 'Nepal',
+            'VE' => 'Venezuela',
+            'MG' => 'Madagascar',
+            'CM' => 'Cameroon',
+            'CI' => "Côte d'Ivoire",
+            'KR' => 'South Korea',
+            'SY' => 'Syria',
+            'RO' => 'Romania',
+            'KZ' => 'Kazakhstan',
+            'MW' => 'Malawi',
+            'CL' => 'Chile',
+            'ZM' => 'Zambia',
+            'GT' => 'Guatemala',
+            'EC' => 'Ecuador',
+            'TD' => 'Chad',
+            'SO' => 'Somalia',
+            'SN' => 'Senegal',
+            'KH' => 'Cambodia',
+            'ZW' => 'Zimbabwe',
+            'GN' => 'Guinea',
+            'RW' => 'Rwanda',
+            'BJ' => 'Benin',
+            'BI' => 'Burundi',
+            'TN' => 'Tunisia',
+            'BO' => 'Bolivia',
+            'HT' => 'Haiti',
+            'BE' => 'Belgium',
+            'SS' => 'South Sudan',
+            'DO' => 'Dominican Republic',
+            'CZ' => 'Czech Republic',
+            'GR' => 'Greece',
+            'JO' => 'Jordan',
+            'PT' => 'Portugal',
+            'AZ' => 'Azerbaijan',
+            'SE' => 'Sweden',
+            'HN' => 'Honduras',
+            'AE' => 'United Arab Emirates',
+            'HU' => 'Hungary',
+            'TJ' => 'Tajikistan',
+            'BY' => 'Belarus',
+            'AT' => 'Austria',
+            'CH' => 'Switzerland',
+            'IL' => 'Israel',
+            'PG' => 'Papua New Guinea',
+            'RS' => 'Serbia',
+            'TG' => 'Togo',
+            'SL' => 'Sierra Leone',
+            'LA' => 'Laos',
+            'PY' => 'Paraguay',
+            'BG' => 'Bulgaria',
+            'AU' => 'Australia',
+            'NI' => 'Nicaragua',
+            'KG' => 'Kyrgyzstan',
+        ];
+
         if (empty($catalog)) {
-            $catalog = [
-                'CA' => ['name' => 'Canada'],
-                'CN' => ['name' => 'China'],
-                'US' => ['name' => 'United States'],
-                'GB' => ['name' => 'United Kingdom'],
-                'AU' => ['name' => 'Australia'],
-            ];
+            foreach (bo_cp_top_country_codes() as $code) {
+                $name = $top_names[$code] ?? $code;
+                $catalog[$code] = ['name' => $name];
+            }
+        } else {
+            foreach (bo_cp_top_country_codes() as $code) {
+                if (!isset($catalog[$code]) && isset($top_names[$code])) {
+                    $catalog[$code] = ['name' => $top_names[$code]];
+                }
+            }
         }
 
         $cache = $catalog;
@@ -159,25 +287,30 @@ if (!function_exists('bo_cp_country_display_name')) {
 if (!function_exists('bo_cp_country_list')) {
     function bo_cp_country_list(string $lang = 'en'): array {
         $catalog = bo_cp_country_catalog();
+        $topCodes = array_fill_keys(bo_cp_top_country_codes(), true);
         $lang = $lang ?: 'en';
         $out = [];
         foreach ($catalog as $code => $meta) {
+            if (!isset($topCodes[$code])) {
+                continue;
+            }
             $english = bo_cp_country_display_name($code, 'en');
             $display = bo_cp_country_display_name($code, $lang);
-            $label = $display;
-            if ($display !== $english) {
-                $label = $display . ' (' . $english . ')';
-            }
-            $label .= ' [' . $code . ']';
             $out[] = [
                 'code'    => $code,
                 'name'    => $english,
                 'display' => $display,
-                'label'   => $label,
+                'label'   => $display,
             ];
         }
-        usort($out, function ($a, $b) {
-            return strcasecmp($a['display'], $b['display']);
+        $ordering = array_flip(bo_cp_top_country_codes());
+        usort($out, function ($a, $b) use ($ordering) {
+            $posA = $ordering[$a['code']] ?? PHP_INT_MAX;
+            $posB = $ordering[$b['code']] ?? PHP_INT_MAX;
+            if ($posA === $posB) {
+                return strcasecmp($a['display'], $b['display']);
+            }
+            return $posA <=> $posB;
         });
         return $out;
     }

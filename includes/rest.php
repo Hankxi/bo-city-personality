@@ -416,6 +416,7 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
 
     $normalized = bo_cp_normalize_country_input($countryParam, $lang);
     $country_code = strtoupper($normalized['code'] ?? '');
+    $country_name = trim($normalized['name'] ?: $normalized['display'] ?: $countryParam);
 
     $response = bo_cp_google_places_autocomplete($input, $lang, $country_code);
     $predictions = [];
@@ -443,8 +444,12 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
 
     if (empty($predictions)) {
         $fallback_query = $input;
-        if ($country_code !== '') {
-            $fallback_query .= ', ' . $country_code;
+        $country_suffix = $country_name;
+        if ($country_suffix === '') {
+            $country_suffix = $country_code;
+        }
+        if ($country_suffix !== '') {
+            $fallback_query .= ', ' . $country_suffix;
         }
         $fallback = bo_cp_google_places_request('textsearch', [
             'query'    => $fallback_query,
