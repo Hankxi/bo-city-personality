@@ -319,7 +319,305 @@ add_action('save_post_city_persona', function($post_id, $post){
     update_post_meta($post_id, 'locales', $locales_meta);
 }, 10, 2);
 
+if (is_admin()) {
+    if (!class_exists('WP_List_Table')) {
+        require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
+    }
+
+    class BO_CP_Results_List_Table extends WP_List_Table {
+        protected int $deleted = 0;
+
+        public function __construct() {
+            parent::__construct([
+                'plural'   => 'bo_cp_results',
+                'singular' => 'bo_cp_result',
+                'ajax'     => false,
+            ]);
+        }
+
+        public function get_deleted_count(): int {
+            return $this->deleted;
+        }
+
+        public function get_columns(): array {
+            return [
+                'cb'         => '<input type="checkbox" />',
+                'created_at' => __('Submitted', 'bo-city-personality'),
+                'persona'    => __('Persona', 'bo-city-personality'),
+                'lang'       => __('Language', 'bo-city-personality'),
+                'location'   => __('Location', 'bo-city-personality'),
+                'birth'      => __('Birth Info', 'bo-city-personality'),
+                'contact'    => __('Contact', 'bo-city-personality'),
+            ];
+        }
+
+        protected function get_sortable_columns(): array {
+            return [
+                'created_at' => ['created_at', true],
+                'persona'    => ['persona_key', false],
+                'lang'       => ['lang', false],
+            ];
+        }
+
+        protected function column_cb($item): string {
+            return '<input type="checkbox" name="result_id[]" value="' . esc_attr((string) $item['id']) . '" />';
+        }
+
+        protected function column_created_at($item): string {
+            $gmt = (string) ($item['created_at'] ?? '');
+            if ($gmt === '') {
+                return '&mdash;';
+            }
+
+            $ts_gmt = strtotime($gmt . ' UTC');
+            if (! $ts_gmt) {
+                return esc_html($gmt);
+            }
+
+            $local = get_date_from_gmt($gmt, get_option('date_format') . ' ' . get_option('time_format'));
+            $diff  = human_time_diff($ts_gmt, current_time('timestamp', true));
+
+            return sprintf(
+                '%s<br /><span class="description">%s</span>',
+                esc_html($local),
+                esc_html(sprintf(__('~ %s ago', 'bo-city-personality'), $diff))
+            );
+        }
+
+        protected function column_persona($item): string {
+            $lang = sanitize_key($item['lang'] ?? '');
+            $persona_raw = (string) ($item['persona_key'] ?? '');
+            $persona_key = $persona_raw !== '' ? bo_cp_canon_key($persona_raw) : '';
+
+            $title = $persona_key !== '' ? bo_cp_persona_display_title($persona_key, $lang ?: 'en') : '';
+            if ($title === '' && $persona_key !== '') {
+                $title = $persona_key;
+            }
+
+            $actions = [];
+            if ($persona_key !== '') {
+                $post_id = bo_cp_find_persona_post_id($persona_key);
+                if ($post_id) {
+                    $actions['edit'] = '<a href="' . esc_url(get_edit_post_link($post_id)) . '">' . esc_html__('Edit Persona', 'bo-city-personality') . '</a>';
+                }
+            }
+
+            $title_html = $title !== '' ? '<strong>' . esc_html($title) . '</strong>' : '&mdash;';
+            $key_html   = $persona_key !== '' ? '<span class="description">' . esc_html($persona_key) . '</span>' : '';
+
+            return $title_html . ($key_html ? '<br />' . $key_html : '') . $this->row_actions($actions);
+        }
+
+        protected function column_lang($item): string {
+            $lang = strtoupper(sanitize_key($item['lang'] ?? ''));
+            return $lang !== '' ? esc_html($lang) : '&mdash;';
+        }
+
+        protected function column_location($item): string {
+            $parts = [];
+            $city = (string) ($item['city'] ?? '');
+            $country = (string) ($item['country'] ?? '');
+            if ($city !== '') {
+                $parts[] = $city;
+            }
+            if ($country !== '') {
+                $parts[] = $country;
+            }
+            $out = $parts ? esc_html(implode(', ', $parts)) : '&mdash;';
+            $lat = isset($item['lat']) ? floatval($item['lat']) : null;
+            $lng = isset($item['lng']) ? floatval($item['lng']) : null;
+            if ($lat !== null && $lng !== null && ($lat !== 0.0 || $lng !== 0.0)) {
+                $out .= '<br /><span class="description">' . esc_html(round($lat, 4) . ', ' . round($lng, 4)) . '</span>';
+            }
+            return $out;
+        }
+
+        protected function column_birth($item): string {
+            $date = (string) ($item['birth_date'] ?? '');
+            $slot = (string) ($item['hour_slot'] ?? '');
+            $tz   = (string) ($item['tz_id'] ?? '');
+            $raw  = isset($item['raw_offset']) ? intval($item['raw_offset']) : 0;
+            $dst  = isset($item['dst_offset']) ? intval($item['dst_offset']) : 0;
+
+            $parts = [];
+            if ($date !== '') {
+                $parts[] = $date;
+            }
+            if ($slot !== '') {
+                $parts[] = sprintf(__('Hour slot: %s', 'bo-city-personality'), $slot);
+            }
+            $out = $parts ? esc_html(implode(' • ', $parts)) : '&mdash;';
+
+            $tz_info = [];
+            if ($tz !== '') {
+                $tz_info[] = $tz;
+            }
+            if ($raw !== 0 || $dst !== 0) {
+                $tz_info[] = sprintf('UTC %+0.1f%s', ($raw / 3600), $dst ? (' (DST +' . ($dst / 3600) . ')') : '');
+            }
+            if ($tz_info) {
+                $out .= '<br /><span class="description">' . esc_html(implode(' • ', $tz_info)) . '</span>';
+            }
+
+            return $out;
+        }
+
+        protected function column_contact($item): string {
+            $name  = (string) ($item['person_name'] ?? '');
+            $email = (string) ($item['email'] ?? '');
+            $gender = (string) ($item['gender'] ?? '');
+
+            $lines = [];
+            if ($name !== '') {
+                $lines[] = esc_html($name);
+            }
+            if ($email !== '') {
+                $lines[] = '<a href="mailto:' . esc_attr($email) . '">' . esc_html($email) . '</a>';
+            }
+            if ($gender !== '') {
+                $lines[] = '<span class="description">' . esc_html(ucwords($gender)) . '</span>';
+            }
+            $ip = (string) ($item['ip'] ?? '');
+            if ($ip !== '') {
+                $lines[] = '<span class="description">IP: ' . esc_html($ip) . '</span>';
+            }
+            return $lines ? implode('<br />', $lines) : '&mdash;';
+        }
+
+        protected function column_default($item, $column_name) {
+            return isset($item[$column_name]) ? esc_html((string) $item[$column_name]) : '&mdash;';
+        }
+
+        protected function get_bulk_actions(): array {
+            return [
+                'delete' => __('Delete', 'bo-city-personality'),
+            ];
+        }
+
+        public function prepare_items(): void {
+            $this->process_bulk_action();
+
+            $columns  = $this->get_columns();
+            $hidden   = [];
+            $sortable = $this->get_sortable_columns();
+            $this->_column_headers = [$columns, $hidden, $sortable];
+
+            global $wpdb;
+            bo_cp_ensure_results_table();
+            $table = bo_cp_results_table_name();
+
+            $per_page = 20;
+            $current_page = max(1, $this->get_pagenum());
+            $offset = ($current_page - 1) * $per_page;
+
+            $search = isset($_REQUEST['s']) ? trim((string) wp_unslash($_REQUEST['s'])) : '';
+            $orderby_req = isset($_REQUEST['orderby']) ? sanitize_key($_REQUEST['orderby']) : 'created_at';
+            $order_req = isset($_REQUEST['order']) ? strtoupper(sanitize_text_field($_REQUEST['order'])) : 'DESC';
+            $allowed_orderby = [
+                'created_at' => 'created_at',
+                'persona_key'=> 'persona_key',
+                'lang'       => 'lang',
+            ];
+            $orderby = $allowed_orderby[$orderby_req] ?? 'created_at';
+            $order = $order_req === 'ASC' ? 'ASC' : 'DESC';
+
+            $where = 'WHERE 1=1';
+            $params = [];
+            if ($search !== '') {
+                $like = '%' . $wpdb->esc_like($search) . '%';
+                $where .= ' AND (persona_key LIKE %s OR country LIKE %s OR city LIKE %s OR email LIKE %s OR person_name LIKE %s)';
+                $params = array_fill(0, 5, $like);
+            }
+
+            $count_sql = "SELECT COUNT(*) FROM {$table} {$where}";
+            if ($params) {
+                $total_items = (int) $wpdb->get_var($wpdb->prepare($count_sql, ...$params));
+            } else {
+                $total_items = (int) $wpdb->get_var($count_sql);
+            }
+
+            $items_sql = "SELECT * FROM {$table} {$where} ORDER BY {$orderby} {$order} LIMIT %d OFFSET %d";
+            $items_params = $params;
+            $items_params[] = $per_page;
+            $items_params[] = $offset;
+            $prepared_items_sql = $wpdb->prepare($items_sql, ...$items_params);
+            $this->items = $wpdb->get_results($prepared_items_sql, ARRAY_A);
+
+            $this->set_pagination_args([
+                'total_items' => $total_items,
+                'per_page'    => $per_page,
+                'total_pages' => $per_page > 0 ? (int) ceil($total_items / $per_page) : 0,
+            ]);
+        }
+
+        public function process_bulk_action(): void {
+            if ('delete' !== $this->current_action()) {
+                return;
+            }
+
+            if (!current_user_can('manage_options')) {
+                return;
+            }
+
+            check_admin_referer('bo_cp_results_bulk_action');
+
+            $ids = isset($_REQUEST['result_id']) ? (array) $_REQUEST['result_id'] : [];
+            $ids = array_filter(array_map('intval', $ids));
+            if (empty($ids)) {
+                return;
+            }
+
+            global $wpdb;
+            bo_cp_ensure_results_table();
+            $table = bo_cp_results_table_name();
+            $placeholders = implode(',', array_fill(0, count($ids), '%d'));
+            $sql = "DELETE FROM {$table} WHERE id IN ($placeholders)";
+            $deleted = $wpdb->query($wpdb->prepare($sql, ...$ids));
+            if ($deleted > 0) {
+                $this->deleted = (int) $deleted;
+            }
+        }
+    }
+}
+
+function bo_cp_render_results_page() {
+    if (! current_user_can('manage_options')) {
+        wp_die(__('Insufficient permissions.', 'bo-city-personality'));
+    }
+
+    $list_table = new BO_CP_Results_List_Table();
+    $list_table->prepare_items();
+
+    echo '<div class="wrap">';
+    echo '<h1>' . esc_html__('Persona Submissions', 'bo-city-personality') . '</h1>';
+
+    if ($list_table->get_deleted_count() > 0) {
+        printf(
+            '<div class="notice notice-success is-dismissible"><p>%s</p></div>',
+            esc_html(sprintf(_n('%d submission deleted.', '%d submissions deleted.', $list_table->get_deleted_count(), 'bo-city-personality'), $list_table->get_deleted_count()))
+        );
+    }
+
+    echo '<form method="get">';
+    echo '<input type="hidden" name="post_type" value="city_persona" />';
+    echo '<input type="hidden" name="page" value="bo-cp-results" />';
+    $list_table->search_box(__('Search submissions', 'bo-city-personality'), 'bo-cp-results');
+    echo '</form>';
+
+    echo '<form method="post">';
+    echo '<input type="hidden" name="post_type" value="city_persona" />';
+    echo '<input type="hidden" name="page" value="bo-cp-results" />';
+    if (!empty($_REQUEST['s'])) {
+        echo '<input type="hidden" name="s" value="' . esc_attr((string) wp_unslash($_REQUEST['s'])) . '" />';
+    }
+    wp_nonce_field('bo_cp_results_bulk_action');
+    $list_table->display();
+    echo '</form>';
+    echo '</div>';
+}
+
 add_action('admin_menu', function () {
+    add_submenu_page('edit.php?post_type=city_persona','Persona Submissions','Persona Submissions','manage_options','bo-cp-results','bo_cp_render_results_page');
     add_submenu_page('edit.php?post_type=city_persona','Import from Data','Import from Data','edit_posts','bo-cp-sync','bo_cp_render_sync_page');
 });
 
