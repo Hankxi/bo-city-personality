@@ -442,8 +442,8 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
         }
     }
 
+    $fallback_query = $input;
     if (empty($predictions)) {
-        $fallback_query = $input;
         $country_suffix = $country_name;
         if ($country_suffix === '') {
             $country_suffix = $country_code;
@@ -451,6 +451,7 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
         if ($country_suffix !== '') {
             $fallback_query .= ', ' . $country_suffix;
         }
+
         $fallback = bo_cp_google_places_request('textsearch', [
             'query'    => $fallback_query,
             'language' => $lang,
@@ -488,6 +489,46 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
                 return $fallback;
             }
             error_log('[bo-city-personality] City suggestion fallback failed: ' . $fallback->get_error_message());
+        } elseif (($fallback['status'] ?? '') !== '') {
+            error_log('[bo-city-personality] City suggestion fallback status ' . ($fallback['status'] ?? 'UNKNOWN'));
+        }
+    }
+
+    if (empty($predictions)) {
+        $geo_params = [
+            'address'  => $fallback_query,
+            'language' => $lang,
+        ];
+        if ($country_code !== '') {
+            $geo_params['components'] = 'country:' . strtolower($country_code);
+        }
+        $geo = bo_cp_google_geocode_request($geo_params, 'suggest_geo_' . $lang . '_' . $country_code . '_' . $input);
+        if (!is_wp_error($geo) && ($geo['status'] ?? '') === 'OK') {
+            foreach (($geo['results'] ?? []) as $result) {
+                if (!is_array($result)) {
+                    continue;
+                }
+                $address = trim((string) ($result['formatted_address'] ?? ''));
+                if ($address === '') {
+                    continue;
+                }
+                $predictions[] = [
+                    'place_id'    => (string) ($result['place_id'] ?? ''),
+                    'description' => $address,
+                    'matched_substrings' => [],
+                    'terms'       => [],
+                ];
+                if (count($predictions) >= 8) {
+                    break;
+                }
+            }
+        } elseif (is_wp_error($geo)) {
+            if (is_wp_error($response)) {
+                return $geo;
+            }
+            error_log('[bo-city-personality] City suggestion geocode failed: ' . $geo->get_error_message());
+        } elseif (($geo['status'] ?? '') !== '') {
+            error_log('[bo-city-personality] City suggestion geocode status ' . ($geo['status'] ?? 'UNKNOWN'));
         }
     }
 
