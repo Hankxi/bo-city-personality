@@ -12,8 +12,8 @@ class BO_CP_Shortcodes {
     }
 
     public static function assets() {
-        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.1.1', true);
-        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.1.0');
+        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.0', true);
+        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.0.0');
     }
 
     public static function expand_section_shortcodes($content) {
@@ -39,112 +39,49 @@ class BO_CP_Shortcodes {
     public static function form($atts = [], $content = '') {
         wp_enqueue_script('bo-cp-form');
         wp_enqueue_style('bo-cp-form');
-        $current_lang = bo_cp_preferred_lang();
-        $supported_langs = bo_cp_supported_language_codes();
-        $strings = bo_cp_form_strings($current_lang);
-        $countries = bo_cp_country_list($current_lang);
-        wp_localize_script('bo-cp-form', 'boCpConfig', array(
-            'lang'  => $current_lang,
-            'langs' => array_values($supported_langs),
-            'strings' => $strings,
-            'countries' => array_values(array_map(function($country){
-                return array(
-                    'code'    => $country['code'],
-                    'name'    => $country['name'],
-                    'display' => $country['display'],
-                    'label'   => $country['label'],
-                );
-            }, $countries)),
-            'endpoints' => array(
-                'places' => esc_url_raw(rest_url('bo/v1/places')),
-            ),
-        ));
         ob_start(); ?>
         <div class="bo-cp-widget">
-          <form id="bo-cp-form" class="bo-cp-form" autocomplete="off">
-            <input type="hidden" name="lang" value="<?php echo esc_attr($current_lang); ?>">
-            <input type="hidden" name="place_id" id="bo-cp-place-id" value="">
+          <form id="bo-cp-form">
             <div class="row">
-              <label for="bo-cp-country"><?php echo esc_html($strings['country_label']); ?></label>
-              <input type="text" id="bo-cp-country" name="country" required placeholder="<?php echo esc_attr($strings['country_placeholder']); ?>" list="bo-cp-country-options" autocomplete="off">
-              <small class="hint"><?php echo esc_html($strings['country_helper']); ?></small>
-              <datalist id="bo-cp-country-options">
-                <?php
-                $rendered = [];
-                foreach ($countries as $country) {
-                    $code = $country['code'];
-                    $name = $country['name'];
-                    $display = $country['display'];
-                    $values = array_unique(array_filter([$display, $name]));
-                    foreach ($values as $value) {
-                        $key = strtolower($value . '|' . $code);
-                        if (isset($rendered[$key])) {
-                            continue;
-                        }
-                        $rendered[$key] = true;
-                        ?>
-                        <option value="<?php echo esc_attr($value); ?>" data-code="<?php echo esc_attr($code); ?>" data-name="<?php echo esc_attr($name); ?>"></option>
-                        <?php
-                    }
-                }
-                ?>
-              </datalist>
-            </div>
-            <div class="row city-row" id="bo-cp-city-row">
-              <label for="bo-cp-city"><?php echo esc_html($strings['city_label']); ?></label>
-              <input type="text" id="bo-cp-city" name="city" required placeholder="<?php echo esc_attr($strings['city_placeholder']); ?>" list="bo-cp-city-options" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="bo-cp-city-suggestions" aria-expanded="false">
-              <small class="hint"><?php echo esc_html($strings['city_helper']); ?></small>
-              <datalist id="bo-cp-city-options"></datalist>
-              <div class="bo-cp-suggestions" id="bo-cp-city-suggestions" role="listbox" aria-label="<?php echo esc_attr($strings['city_label']); ?>"></div>
+              <label>Country</label>
+              <input type="text" name="country" required placeholder="Canada">
             </div>
             <div class="row">
-              <label for="bo-cp-birth-date"><?php echo esc_html($strings['birth_label']); ?></label>
-              <div class="input-group">
-                <input type="date" id="bo-cp-birth-date" name="birth_date" required value="2000-01-01" placeholder="<?php echo esc_attr($strings['birth_placeholder']); ?>">
-                <button type="button" id="bo-cp-toggle-date" class="link-button"><?php echo esc_html($strings['birth_toggle']); ?></button>
-              </div>
-              <small class="hint"><?php echo esc_html($strings['birth_helper']); ?></small>
+              <label>City</label>
+              <input type="text" name="city" required placeholder="Vancouver">
             </div>
             <div class="row">
-              <label for="bo-cp-hour-slot"><?php echo esc_html($strings['hour_label']); ?></label>
-              <select id="bo-cp-hour-slot" name="hour_slot">
-                <?php foreach ($strings['hour_slots'] as $value => $label) : ?>
-                  <option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option>
-                <?php endforeach; ?>
-              </select>
-              <small class="hint"><?php echo esc_html($strings['hour_placeholder']); ?></small>
+              <label>Birth Date</label>
+              <input type="date" name="birth_date" required>
             </div>
             <div class="row">
-              <label for="bo-cp-person-name"><?php echo esc_html($strings['name_label']); ?></label>
-              <input type="text" id="bo-cp-person-name" name="person_name" placeholder="<?php echo esc_attr($strings['name_placeholder']); ?>">
+              <label>Hour Slot</label>
+              <input type="text" name="hour_slot" placeholder="13-15">
             </div>
             <div class="row">
-              <label for="bo-cp-gender"><?php echo esc_html($strings['gender_label']); ?></label>
-              <select id="bo-cp-gender" name="gender">
-                <?php foreach ($strings['gender_options'] as $value => $label) : ?>
-                  <option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option>
-                <?php endforeach; ?>
-              </select>
-              <small class="hint"><?php echo esc_html($strings['gender_helper']); ?></small>
+              <label>Name (optional)</label>
+              <input type="text" name="person_name" placeholder="Your name">
             </div>
             <div class="row">
-              <label for="bo-cp-email"><?php echo esc_html($strings['email_label']); ?></label>
-              <input type="email" id="bo-cp-email" name="email" placeholder="<?php echo esc_attr($strings['email_placeholder']); ?>">
+              <label>Gender (optional)</label>
+              <input type="text" name="gender" placeholder="male / female / ...">
             </div>
             <div class="row">
-              <button type="submit" id="bo-cp-submit"><?php echo esc_html($strings['submit']); ?></button>
+              <label>Email (optional)</label>
+              <input type="email" name="email" placeholder="you@example.com">
+            </div>
+            <div class="row">
+              <button type="submit">Compute Persona</button>
             </div>
           </form>
 
-          <div id="bo-cp-result" class="bo-cp-result" style="display:none;">
-            <div class="tagline"><strong id="bo-cp-result-title"><?php echo esc_html($strings['result_title']); ?></strong> <span id="bo-cp-name"></span></div>
+          <div id="bo-cp-result" style="display:none;">
+            <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-name"></span></div>
             <div id="bo-cp-overview"></div>
             <div class="row">
-              <label for="bo-cp-section-key"><?php echo esc_html($strings['section_label']); ?></label>
-              <div class="input-group">
-                <input type="text" id="bo-cp-section-key" placeholder="<?php echo esc_attr($strings['section_placeholder']); ?>">
-                <button type="button" id="bo-cp-load-section"><?php echo esc_html($strings['section_button']); ?></button>
-              </div>
+              <label>Load section by key</label>
+              <input type="text" id="bo-cp-section-key" placeholder="love / career / health">
+              <button id="bo-cp-load-section">Load Section</button>
             </div>
             <div id="bo-cp-section-html"></div>
           </div>
