@@ -4,6 +4,87 @@
  */
 if ( ! defined('ABSPATH') ) { exit; }
 
+// ---------- Language helpers ----------
+if (!function_exists('bo_cp_supported_language_codes')) {
+    function bo_cp_supported_language_codes(): array {
+        if (function_exists('bo_cp_persona_supported_languages')) {
+            $langs = bo_cp_persona_supported_languages();
+            if (is_array($langs) && !empty($langs)) {
+                return array_values(array_filter(array_map('sanitize_key', array_keys($langs))));
+            }
+        }
+
+        return ['en', 'zh'];
+    }
+}
+
+if (!function_exists('bo_cp_preferred_lang')) {
+    function bo_cp_preferred_lang($requested = '', string $fallback = ''): string {
+        $supported = bo_cp_supported_language_codes();
+        if (empty($supported)) {
+            $supported = ['en'];
+        }
+        $supported = array_values(array_unique(array_filter($supported)));
+        $supported_map = array_fill_keys($supported, true);
+        $fallback = $fallback !== '' ? $fallback : $supported[0];
+
+        $candidates = [];
+        if (is_string($requested) && $requested !== '') {
+            $candidates[] = strtolower(trim($requested));
+        }
+
+        if (function_exists('determine_locale')) {
+            $candidates[] = strtolower((string) determine_locale());
+        }
+        if (function_exists('get_user_locale')) {
+            $candidates[] = strtolower((string) get_user_locale());
+        }
+        $candidates[] = strtolower((string) get_locale());
+        $candidates[] = strtolower((string) get_bloginfo('language'));
+
+        $accept = isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? (string) $_SERVER['HTTP_ACCEPT_LANGUAGE'] : '';
+        if ($accept !== '') {
+            foreach (explode(',', $accept) as $piece) {
+                $piece = strtolower(trim($piece));
+                if ($piece !== '') {
+                    $candidates[] = $piece;
+                }
+            }
+        }
+
+        foreach ($candidates as $cand) {
+            if ($cand === '') {
+                continue;
+            }
+            if (isset($supported_map[$cand])) {
+                return $cand;
+            }
+
+            if (strpos($cand, '-') !== false) {
+                $short = substr($cand, 0, strpos($cand, '-'));
+                if (isset($supported_map[$short])) {
+                    return $short;
+                }
+            }
+            if (strpos($cand, '_') !== false) {
+                $short = substr($cand, 0, strpos($cand, '_'));
+                if (isset($supported_map[$short])) {
+                    return $short;
+                }
+            }
+
+            if (strlen($cand) >= 2) {
+                $short = substr($cand, 0, 2);
+                if (isset($supported_map[$short])) {
+                    return $short;
+                }
+            }
+        }
+
+        return $fallback;
+    }
+}
+
 // ---------- Google API key helper ----------
 if (!function_exists('bo_cp_google_api_key')) {
     function bo_cp_google_api_key(string $service = ''): string {

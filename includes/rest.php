@@ -382,7 +382,7 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
     $country    = sanitize_text_field($req->get_param('country'));
     $birth_date = sanitize_text_field($req->get_param('birth_date'));
     $hour_slot  = sanitize_text_field($req->get_param('hour_slot'));
-    $lang       = sanitize_key($req->get_param('lang') ?: 'en');
+    $lang       = bo_cp_preferred_lang($req->get_param('lang'));
     $email      = sanitize_email($req->get_param('email'));
     $person     = sanitize_text_field($req->get_param('person_name'));
     $gender     = sanitize_text_field($req->get_param('gender'));
@@ -397,7 +397,7 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
 
     $supported_langs = function_exists('bo_cp_persona_supported_languages') ? bo_cp_persona_supported_languages() : ['en' => 'English'];
     if (!isset($supported_langs[$lang])) {
-        $lang = 'en';
+        $lang = bo_cp_preferred_lang('', 'en');
     }
 
     $place = bo_cp_lookup_place($city, $country, $place_id, $lang);
@@ -503,7 +503,8 @@ function bo_cp_rest_result_callback(WP_REST_Request $req) {
         return new WP_Error('not_found', 'Result not found.', ['status' => 404]);
     }
 
-    $lang = $row['lang'] ?: 'en';
+    $requested_lang = $req->get_param('lang');
+    $lang = bo_cp_preferred_lang($requested_lang ?: ($row['lang'] ?? ''));
     $sections = bo_cp_load_sections($persona, $lang);
     if (!isset($sections[$section])) {
         if ($section === 'overview') {
@@ -529,7 +530,7 @@ add_action('rest_api_init', function(){
         'methods'  => 'GET',
         'callback' => function(WP_REST_Request $req){
             $persona = sanitize_key($req->get_param('persona'));
-            $lang    = sanitize_text_field($req->get_param('lang') ?: 'en');
+            $lang    = bo_cp_preferred_lang($req->get_param('lang'));
             $key     = sanitize_key($req->get_param('key'));
 
             if (!$persona || !$key) {
@@ -561,7 +562,7 @@ add_action('rest_api_init', function(){
         'methods'  => 'GET',
         'callback' => function(WP_REST_Request $req){
             $persona = sanitize_key($req->get_param('persona'));
-            $lang    = sanitize_text_field($req->get_param('lang') ?: 'en');
+            $lang    = bo_cp_preferred_lang($req->get_param('lang'));
             $keysStr = (string) $req->get_param('keys');
             $keys = array_filter(array_map('sanitize_key', array_map('trim', explode(',', $keysStr))));
 
@@ -619,6 +620,7 @@ add_action('rest_api_init', function(){
             'name'      => ['required' => true],
             'token'     => ['required' => true],
             'section'   => ['required' => false],
+            'lang'      => ['required' => false],
         ],
     ]);
 });

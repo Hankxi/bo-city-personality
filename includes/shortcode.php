@@ -15,9 +15,16 @@ class BO_CP_Shortcodes {
     public static function form($atts = [], $content = '') {
         wp_enqueue_script('bo-cp-form');
         wp_enqueue_style('bo-cp-form');
+        $current_lang = bo_cp_preferred_lang();
+        $supported_langs = bo_cp_supported_language_codes();
+        wp_localize_script('bo-cp-form', 'boCpConfig', array(
+            'lang'  => $current_lang,
+            'langs' => array_values($supported_langs),
+        ));
         ob_start(); ?>
         <div class="bo-cp-widget">
           <form id="bo-cp-form">
+            <input type="hidden" name="lang" value="<?php echo esc_attr($current_lang); ?>">
             <div class="row">
               <label>Country</label>
               <input type="text" name="country" required placeholder="Canada">
