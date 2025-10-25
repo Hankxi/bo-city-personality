@@ -85,10 +85,12 @@ function bo_cp_google_geocode_request(array $params, string $cache_key) {
 
 function bo_cp_lookup_place(string $city, string $country, string $place_id = '', string $lang = 'en') {
     $lang = $lang ?: 'en';
-    $query = trim($city . ', ' . $country);
+    $normalizedCountry = bo_cp_normalize_country_input($country, $lang);
+    $countryName = $normalizedCountry['display'] ?: ($normalizedCountry['name'] ?: $country);
+    $countryCode = strtoupper($normalizedCountry['code'] ?? '');
+    $query = trim($city . ', ' . $countryName);
     $result = null;
     $components = [];
-    $countryCode = '';
     $used_geocode = false;
 
     if ($place_id === '') {
@@ -174,6 +176,13 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
         }
     }
 
+    if ($countryCode === '' && $normalizedCountry['code'] !== '') {
+        $countryCode = strtoupper($normalizedCountry['code']);
+    }
+    if ($parsedCountry === '' && $normalizedCountry['display'] !== '') {
+        $parsedCountry = $normalizedCountry['display'];
+    }
+
     return [
         'place_id'          => $result['place_id'] ?? $place_id,
         'lat'               => (float) ($loc['lat'] ?? 0),
@@ -184,6 +193,21 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
         'name'              => $result['name'] ?? ($result['formatted_address'] ?? ($used_geocode ? $query : '')),
         'formatted_address' => $result['formatted_address'] ?? $query,
     ];
+}
+
+function bo_cp_google_places_autocomplete(string $input, string $lang = 'en', string $country_code = '') {
+    $lang = $lang ?: 'en';
+    $params = [
+        'input'    => $input,
+        'language' => $lang,
+        'types'    => '(cities)',
+    ];
+    $country_code = strtoupper(trim($country_code));
+    if ($country_code !== '') {
+        $params['components'] = 'country:' . strtolower($country_code);
+    }
+
+    return bo_cp_google_places_request('autocomplete', $params, 'autocomplete_' . $lang . '_' . $country_code . '_' . $input);
 }
 
 function bo_cp_google_timezone_request(float $lat, float $lng, int $timestamp) {
@@ -370,6 +394,56 @@ function bo_cp_lookup_timezone(float $lat, float $lng, int $timestamp, array $co
     ]));
     set_transient($cache_name, $estimate, HOUR_IN_SECONDS * 6);
     return $estimate;
+}
+
+function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    if (bo_cp_rate_limited('places_' . $ip, 60, 60)) {
+        return new WP_Error('rate_limited', 'Too many requests.', ['status' => 429]);
+    }
+
+    $input = sanitize_text_field($req->get_param('input'));
+    $lang  = bo_cp_preferred_lang($req->get_param('lang'));
+    $countryParam = sanitize_text_field($req->get_param('country'));
+
+    if (strlen($input) < 2) {
+        return [
+            'lang'        => $lang,
+            'country'     => '',
+            'predictions' => [],
+        ];
+    }
+
+    $normalized = bo_cp_normalize_country_input($countryParam, $lang);
+    $country_code = strtoupper($normalized['code'] ?? '');
+
+    $response = bo_cp_google_places_autocomplete($input, $lang, $country_code);
+    if (is_wp_error($response)) {
+        return $response;
+    }
+
+    $predictions = [];
+    foreach (($response['predictions'] ?? []) as $prediction) {
+        if (!is_array($prediction)) {
+            continue;
+        }
+        $description = (string) ($prediction['description'] ?? '');
+        if ($description === '') {
+            continue;
+        }
+        $predictions[] = [
+            'place_id'    => (string) ($prediction['place_id'] ?? ''),
+            'description' => $description,
+            'matched_substrings' => $prediction['matched_substrings'] ?? [],
+            'terms'       => $prediction['terms'] ?? [],
+        ];
+    }
+
+    return [
+        'lang'        => $lang,
+        'country'     => $country_code,
+        'predictions' => $predictions,
+    ];
 }
 
 function bo_cp_rest_geo_callback(WP_REST_Request $req) {
@@ -598,6 +672,17 @@ add_action('rest_api_init', function(){
             'lang'    => ['required'=>false],
             'keys'    => ['required'=>false],
         ]
+    ]);
+
+    register_rest_route('bo/v1', '/places', [
+        'methods'  => 'GET',
+        'callback' => 'bo_cp_rest_place_suggestions',
+        'permission_callback' => '__return_true',
+        'args' => [
+            'input'   => ['required' => true],
+            'country' => ['required' => false],
+            'lang'    => ['required' => false],
+        ],
     ]);
 
     register_rest_route('bo/v1', '/geo', [

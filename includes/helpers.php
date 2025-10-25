@@ -85,6 +85,284 @@ if (!function_exists('bo_cp_preferred_lang')) {
     }
 }
 
+if (!function_exists('bo_cp_mb_lower')) {
+    function bo_cp_mb_lower(string $value): string {
+        if (function_exists('mb_strtolower')) {
+            return mb_strtolower($value, 'UTF-8');
+        }
+        return strtolower($value);
+    }
+}
+
+if (!function_exists('bo_cp_country_catalog')) {
+    function bo_cp_country_catalog(): array {
+        static $cache = null;
+        if (is_array($cache)) {
+            return $cache;
+        }
+
+        $catalog = [];
+        $path = '/usr/share/zoneinfo/iso3166.tab';
+        if (is_readable($path)) {
+            $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (is_array($lines)) {
+                foreach ($lines as $line) {
+                    if ($line === '' || $line[0] === '#') {
+                        continue;
+                    }
+                    $parts = preg_split('/\s+/', trim($line), 2);
+                    if (count($parts) >= 2) {
+                        $code = strtoupper(trim($parts[0]));
+                        $name = trim($parts[1]);
+                        if ($code !== '' && $name !== '') {
+                            $catalog[$code] = ['name' => $name];
+                        }
+                    }
+                }
+            }
+        }
+
+        if (empty($catalog)) {
+            $catalog = [
+                'CA' => ['name' => 'Canada'],
+                'CN' => ['name' => 'China'],
+                'US' => ['name' => 'United States'],
+                'GB' => ['name' => 'United Kingdom'],
+                'AU' => ['name' => 'Australia'],
+            ];
+        }
+
+        $cache = $catalog;
+        return $catalog;
+    }
+}
+
+if (!function_exists('bo_cp_country_display_name')) {
+    function bo_cp_country_display_name(string $code, string $lang = 'en'): string {
+        $code = strtoupper(trim($code));
+        $catalog = bo_cp_country_catalog();
+        $fallback = $catalog[$code]['name'] ?? $code;
+        if (class_exists('Locale')) {
+            try {
+                $display = Locale::getDisplayRegion('-' . $code, $lang ?: 'en');
+                if (is_string($display) && $display !== '') {
+                    return $display;
+                }
+            } catch (Throwable $e) {
+                // ignore and fallback
+            }
+        }
+        return $fallback;
+    }
+}
+
+if (!function_exists('bo_cp_country_list')) {
+    function bo_cp_country_list(string $lang = 'en'): array {
+        $catalog = bo_cp_country_catalog();
+        $lang = $lang ?: 'en';
+        $out = [];
+        foreach ($catalog as $code => $meta) {
+            $english = bo_cp_country_display_name($code, 'en');
+            $display = bo_cp_country_display_name($code, $lang);
+            $label = $display;
+            if ($display !== $english) {
+                $label = $display . ' (' . $english . ')';
+            }
+            $label .= ' [' . $code . ']';
+            $out[] = [
+                'code'    => $code,
+                'name'    => $english,
+                'display' => $display,
+                'label'   => $label,
+            ];
+        }
+        usort($out, function ($a, $b) {
+            return strcasecmp($a['display'], $b['display']);
+        });
+        return $out;
+    }
+}
+
+if (!function_exists('bo_cp_normalize_country_input')) {
+    function bo_cp_normalize_country_input(string $input, string $lang = 'en'): array {
+        $input = trim($input);
+        if ($input === '') {
+            return ['code' => '', 'name' => '', 'display' => ''];
+        }
+
+        $catalog = bo_cp_country_catalog();
+        $upper = strtoupper($input);
+        if (isset($catalog[$upper])) {
+            return [
+                'code'    => $upper,
+                'name'    => bo_cp_country_display_name($upper, 'en'),
+                'display' => bo_cp_country_display_name($upper, $lang),
+            ];
+        }
+
+        $lower = bo_cp_mb_lower($input);
+        foreach ($catalog as $code => $meta) {
+            $english = bo_cp_mb_lower($meta['name'] ?? '');
+            if ($english !== '' && $english === $lower) {
+                return [
+                    'code'    => $code,
+                    'name'    => bo_cp_country_display_name($code, 'en'),
+                    'display' => bo_cp_country_display_name($code, $lang),
+                ];
+            }
+        }
+
+        if (class_exists('Locale')) {
+            $locales = array_unique(array_filter([$lang, 'en', 'zh']));
+            foreach ($catalog as $code => $meta) {
+                foreach ($locales as $loc) {
+                    try {
+                        $display = Locale::getDisplayRegion('-' . $code, $loc);
+                    } catch (Throwable $e) {
+                        $display = '';
+                    }
+                    if ($display !== '' && bo_cp_mb_lower($display) === $lower) {
+                        return [
+                            'code'    => $code,
+                            'name'    => bo_cp_country_display_name($code, 'en'),
+                            'display' => bo_cp_country_display_name($code, $lang),
+                        ];
+                    }
+                }
+            }
+        }
+
+        return [
+            'code'    => '',
+            'name'    => $input,
+            'display' => $input,
+        ];
+    }
+}
+
+if (!function_exists('bo_cp_form_strings')) {
+    function bo_cp_form_strings(string $lang = 'en'): array {
+        $lang = $lang ?: 'en';
+        $hourSlots = [
+            ''       => 'Not sure',
+            '23-01'  => '23:00 – 01:00',
+            '01-03'  => '01:00 – 03:00',
+            '03-05'  => '03:00 – 05:00',
+            '05-07'  => '05:00 – 07:00',
+            '07-09'  => '07:00 – 09:00',
+            '09-11'  => '09:00 – 11:00',
+            '11-13'  => '11:00 – 13:00',
+            '13-15'  => '13:00 – 15:00',
+            '15-17'  => '15:00 – 17:00',
+            '17-19'  => '17:00 – 19:00',
+            '19-21'  => '19:00 – 21:00',
+            '21-23'  => '21:00 – 23:00',
+        ];
+        $genderOptions = [
+            ''        => 'Prefer not to say',
+            'female'  => 'Female',
+            'male'    => 'Male',
+            'other'   => 'Other',
+        ];
+
+        $strings = [
+            'country_label'        => 'Country or region',
+            'country_placeholder'  => 'Start typing a country or enter its ISO code (e.g. Canada or CA)',
+            'country_helper'       => 'You can enter the full country name or its two-letter ISO code.',
+            'city_label'           => 'City',
+            'city_placeholder'     => 'Start typing to search cities',
+            'city_helper'          => 'Pick a suggestion to help us find the exact location.',
+            'birth_label'          => 'Birth date',
+            'birth_helper'         => 'Pick a date or type it as YYYY-MM-DD.',
+            'birth_placeholder'    => 'YYYY-MM-DD',
+            'birth_toggle'         => 'Switch to manual entry',
+            'birth_toggle_back'    => 'Switch to calendar',
+            'hour_label'           => 'Birth hour',
+            'hour_placeholder'     => 'Select a 2-hour slot (optional)',
+            'hour_slots'           => $hourSlots,
+            'name_label'           => 'Name (optional)',
+            'name_placeholder'     => 'Your name',
+            'gender_label'         => 'Gender',
+            'gender_helper'        => 'Optional, used for personalised notes.',
+            'gender_placeholder'   => 'Select',
+            'gender_options'       => $genderOptions,
+            'email_label'          => 'Email (optional)',
+            'email_placeholder'    => 'you@example.com',
+            'submit'               => 'Compute Persona',
+            'section_label'        => 'Load section by key',
+            'section_placeholder'  => 'love / career / health',
+            'section_button'       => 'Load Section',
+            'result_title'         => 'Persona:',
+            'overview_empty'       => '(No overview)',
+            'section_empty'        => '(empty)',
+            'compute_first'        => 'Compute first.',
+            'generic_error'        => 'Something went wrong, please try again.',
+        ];
+
+        if ($lang === 'zh') {
+            $hourSlots = [
+                ''       => '不确定',
+                '23-01'  => '23:00 – 01:00',
+                '01-03'  => '01:00 – 03:00',
+                '03-05'  => '03:00 – 05:00',
+                '05-07'  => '05:00 – 07:00',
+                '07-09'  => '07:00 – 09:00',
+                '09-11'  => '09:00 – 11:00',
+                '11-13'  => '11:00 – 13:00',
+                '13-15'  => '13:00 – 15:00',
+                '15-17'  => '15:00 – 17:00',
+                '17-19'  => '17:00 – 19:00',
+                '19-21'  => '19:00 – 21:00',
+                '21-23'  => '21:00 – 23:00',
+            ];
+            $genderOptions = [
+                ''        => '不透露',
+                'female'  => '女性',
+                'male'    => '男性',
+                'other'   => '其他',
+            ];
+            $strings = array_merge($strings, [
+                'country_label'        => '国家/地区',
+                'country_placeholder'  => '输入国家全名或两位代码（例如 Canada 或 CA）',
+                'country_helper'       => '可以输入国家名称，或两位 ISO 代码。',
+                'city_label'           => '城市',
+                'city_placeholder'     => '输入城市名称快速搜索',
+                'city_helper'          => '从建议列表中选择可以更快定位。',
+                'birth_label'          => '出生日期',
+                'birth_helper'         => '可以直接输入 YYYY-MM-DD，或使用日期选择器。',
+                'birth_placeholder'    => 'YYYY-MM-DD',
+                'birth_toggle'         => '切换到手动输入',
+                'birth_toggle_back'    => '切换到日历',
+                'hour_label'           => '出生时段',
+                'hour_placeholder'     => '选择 2 小时时段（可选）',
+                'name_label'           => '姓名（可选）',
+                'name_placeholder'     => '你的名字',
+                'gender_label'         => '性别',
+                'gender_helper'        => '可选，仅用于个性化提示。',
+                'gender_placeholder'   => '请选择',
+                'email_label'          => '邮箱（可选）',
+                'email_placeholder'    => 'you@example.com',
+                'submit'               => '计算人格',
+                'section_label'        => '按关键字加载段落',
+                'section_placeholder'  => 'love / career / health',
+                'section_button'       => '加载内容',
+                'result_title'         => '人格：',
+                'overview_empty'       => '（暂无简介）',
+                'section_empty'        => '（暂无内容）',
+                'compute_first'        => '请先计算。',
+                'generic_error'        => '出错了，请稍后再试。',
+            ]);
+            $strings['hour_slots'] = $hourSlots;
+            $strings['gender_options'] = $genderOptions;
+        } else {
+            $strings['hour_slots'] = $hourSlots;
+            $strings['gender_options'] = $genderOptions;
+        }
+
+        return $strings;
+    }
+}
+
 // ---------- Google API key helper ----------
 if (!function_exists('bo_cp_google_api_key')) {
     function bo_cp_google_api_key(string $service = ''): string {
