@@ -4,7 +4,7 @@ if ( ! defined('ABSPATH') ) { exit; }
 /**
  * Register CPT: city_persona (single post per persona)
  */
-add_action('init', function(){
+function bo_cp_register_cpts() {
     $labels = array(
         'name'               => 'City Personas',
         'singular_name'      => 'City Persona',
@@ -33,7 +33,9 @@ add_action('init', function(){
         'has_archive'        => false,
         'capability_type'    => 'post'
     ));
-});
+}
+
+add_action('init', 'bo_cp_register_cpts');
 
 /**
  * Admin list columns: Persona key + available locales summary
