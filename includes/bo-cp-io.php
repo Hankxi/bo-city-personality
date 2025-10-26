@@ -256,8 +256,12 @@ function bo_cp_sections_with_aliases(array $sections): array {
             continue;
         }
 
-        $alias = sanitize_key($rawKey);
-        if ($alias !== '' && $alias !== $rawKey && !array_key_exists($alias, $aliases)) {
+        $alias = ($rawKey === 'overview') ? 'overview' : bo_cp_canon_key($rawKey);
+        if ($alias === '' || $alias === $rawKey) {
+            continue;
+        }
+
+        if (!array_key_exists($alias, $aliases)) {
             $aliases[$alias] = $row;
         }
     }
