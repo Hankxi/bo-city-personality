@@ -42,7 +42,7 @@ class BO_CP_Shortcodes {
         $active_lang = bo_cp_preferred_lang('', 'en');
         ob_start(); ?>
         <div class="bo-cp-widget">
-          <form id="bo-cp-form">
+          <form id="bo-cp-form" class="bo-cp-form">
             <input type="hidden" name="lang" value="<?php echo esc_attr($active_lang); ?>">
             <div class="row">
               <label>Country</label>
@@ -61,18 +61,18 @@ class BO_CP_Shortcodes {
               <input type="text" name="hour_slot" placeholder="13-15">
             </div>
             <div class="row">
-              <label>Name (optional)</label>
+              <label>Name <span class="optional-badge">Optional</span></label>
               <input type="text" name="person_name" placeholder="Your name">
             </div>
             <div class="row">
-              <label>Gender (optional)</label>
+              <label>Gender <span class="optional-badge">Optional</span></label>
               <input type="text" name="gender" placeholder="male / female / ...">
             </div>
             <div class="row">
-              <label>Email (optional)</label>
+              <label>Email <span class="optional-badge">Optional</span></label>
               <input type="email" name="email" placeholder="you@example.com">
             </div>
-            <div class="row">
+            <div class="row row--actions">
               <button type="submit">Compute Persona</button>
             </div>
           </form>
