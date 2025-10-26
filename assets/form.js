@@ -1,6 +1,60 @@
 (function(){
   const settings = window.boCPData || {};
-  const debugEnabled = Boolean(settings.debug);
+
+  const readQueryDebug = () => {
+    try {
+      const search = window.location && window.location.search;
+      if (!search) return null;
+      const params = new URLSearchParams(search);
+      if (!params.has('bo_cp_debug')) return null;
+      return params.get('bo_cp_debug');
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const readStorageDebug = () => {
+    try {
+      const value = window.localStorage && window.localStorage.getItem('boCPDebug');
+      return value === null ? null : value;
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const queryDebug = readQueryDebug();
+  let storageDebug = readStorageDebug();
+
+  if (queryDebug !== null) {
+    const shouldEnable = queryDebug !== '0' && queryDebug !== 'false';
+    try {
+      if (window.localStorage) {
+        if (shouldEnable) {
+          window.localStorage.setItem('boCPDebug', '1');
+        } else {
+          window.localStorage.removeItem('boCPDebug');
+        }
+      }
+    } catch (err) {
+      // ignore storage errors
+    }
+    storageDebug = shouldEnable ? '1' : null;
+  }
+
+  const combinedDebug = () => {
+    if (storageDebug === '1') {
+      return true;
+    }
+    if (storageDebug === '0') {
+      return false;
+    }
+    if (typeof settings.debug !== 'undefined') {
+      return Boolean(settings.debug);
+    }
+    return false;
+  };
+
+  const debugEnabled = combinedDebug();
   const logDebug = (...args) => {
     if (!debugEnabled || typeof console === 'undefined') {
       return;
@@ -13,13 +67,18 @@
     }
   };
 
-  if (debugEnabled) {
+  const announceDebugState = () => {
+    if (!debugEnabled) {
+      return;
+    }
     const redacted = Object.assign({}, settings);
     if (redacted.placesKey) {
       redacted.placesKey = `${String(redacted.placesKey).slice(0, 6)}…`;
     }
     logDebug('Debug mode enabled', redacted);
-  }
+  };
+
+  announceDebugState();
   const normalizeRestRoot = (value) => {
     if (!value) return '/wp-json/bo/v1';
     try {
@@ -63,6 +122,40 @@
     window.__boCP.debug = debugEnabled;
     return window.__boCP;
   };
+
+  try {
+    window.boCPDebug = {
+      enable() {
+        try {
+          if (window.localStorage) {
+            window.localStorage.setItem('boCPDebug', '1');
+          }
+        } catch (err) {
+          // ignore
+        }
+        if (!debugEnabled) {
+          console.log('[bo-cp] Debug enabled via window.boCPDebug.enable(); reload to capture logs.');
+        }
+      },
+      disable() {
+        try {
+          if (window.localStorage) {
+            window.localStorage.removeItem('boCPDebug');
+          }
+        } catch (err) {
+          // ignore
+        }
+        if (debugEnabled) {
+          console.log('[bo-cp] Debug disabled via window.boCPDebug.disable(); reload to stop logging.');
+        }
+      },
+      state() {
+        return Boolean(combinedDebug());
+      }
+    };
+  } catch (err) {
+    // ignore inability to expose helper
+  }
 
   const normalizeLang = (value='') => {
     const str = (value || '').toString().trim().toLowerCase();
