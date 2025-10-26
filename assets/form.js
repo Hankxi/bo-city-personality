@@ -564,8 +564,8 @@
       if (item.place_id) {
         const details = await fetchPlaceDetails(item.place_id);
         if (details) {
-          resolvedCity = (details.city || '').toString();
-          resolvedCountry = (details.country || '').toString();
+          resolvedCity = (details.city || '').toString().trim();
+          resolvedCountry = (details.country || '').toString().trim();
           if (details.place_id) {
             placeField.value = details.place_id;
           }
@@ -576,10 +576,10 @@
         const fallbackDetails = await fetchPlaceDetailsViaGoogle(item.place_id);
         if (fallbackDetails) {
           if (!resolvedCity && fallbackDetails.city) {
-            resolvedCity = fallbackDetails.city.toString();
+            resolvedCity = fallbackDetails.city.toString().trim();
           }
           if (!resolvedCountry && fallbackDetails.country) {
-            resolvedCountry = fallbackDetails.country.toString();
+            resolvedCountry = fallbackDetails.country.toString().trim();
           }
           if (!placeField.value && fallbackDetails.place_id) {
             placeField.value = fallbackDetails.place_id;
@@ -594,6 +594,16 @@
         const lastTerm = item.terms[item.terms.length - 1];
         if (!resolvedCountry && lastTerm && lastTerm.value) {
           resolvedCountry = lastTerm.value;
+        }
+      }
+
+      if ((!resolvedCity || !resolvedCountry) && item.description) {
+        const parts = item.description.split(',').map((part) => part.trim()).filter(Boolean);
+        if (!resolvedCountry && parts.length) {
+          resolvedCountry = parts[parts.length - 1];
+        }
+        if (!resolvedCity && parts.length > 1) {
+          resolvedCity = parts[0];
         }
       }
 
@@ -637,10 +647,28 @@
         if (currentToken !== requestToken) {
           return;
         }
-        currentSuggestions = Array.isArray(payload.predictions) ? payload.predictions : [];
-        if (!currentSuggestions.length && settings.placesKey) {
-          currentSuggestions = await fetchSuggestionsViaGoogle(trimmed);
+        const combined = Array.isArray(payload.predictions) ? payload.predictions.slice() : [];
+        if (settings.placesKey) {
+          const googleResults = await fetchSuggestionsViaGoogle(trimmed);
+          if (googleResults && googleResults.length) {
+            const seen = new Set();
+            combined.forEach((item) => {
+              const key = (item && (item.place_id || item.description)) ? `${item.place_id || ''}|${item.description || ''}` : '';
+              if (key) {
+                seen.add(key);
+              }
+            });
+            googleResults.forEach((item) => {
+              const key = (item && (item.place_id || item.description)) ? `${item.place_id || ''}|${item.description || ''}` : '';
+              if (!key || seen.has(key)) {
+                return;
+              }
+              combined.push(item);
+              seen.add(key);
+            });
+          }
         }
+        currentSuggestions = combined;
         if (!currentSuggestions.length) {
           hideSuggestions();
           setStatus(input.dataset.noResults || '', 'empty');
