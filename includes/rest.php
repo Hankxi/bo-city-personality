@@ -109,7 +109,7 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
                 $details = bo_cp_google_places_request('details', [
                     'place_id' => $place_id,
                     'language' => $lang,
-                    'fields'   => 'geometry/location,address_component,name,formatted_address,place_id',
+                    'fields'   => 'geometry,address_component,name,formatted_address,place_id',
                 ], 'details_' . $lang . '_' . $place_id);
                 if (!is_wp_error($details) && ($details['status'] ?? '') === 'OK' && !empty($details['result']['geometry']['location'])) {
                     $result = $details['result'];
@@ -127,7 +127,7 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
         $details = bo_cp_google_places_request('details', [
             'place_id' => $place_id,
             'language' => $lang,
-            'fields'   => 'geometry/location,address_component,name,formatted_address,place_id',
+            'fields'   => 'geometry,address_component,name,formatted_address,place_id',
         ], 'details_' . $lang . '_' . $place_id);
         if (is_wp_error($details)) {
             return $details;
@@ -420,6 +420,7 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
 
     $response = bo_cp_google_places_autocomplete($input, $lang, $country_code);
     $predictions = [];
+    $seenIds = [];
     $response_status = '';
     if (!is_wp_error($response)) {
         $response_status = (string) ($response['status'] ?? '');
@@ -432,18 +433,24 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
                 if ($description === '') {
                     continue;
                 }
+                $placeId = (string) ($prediction['place_id'] ?? '');
                 $predictions[] = [
-                    'place_id'    => (string) ($prediction['place_id'] ?? ''),
+                    'place_id'    => $placeId,
                     'description' => $description,
                     'matched_substrings' => $prediction['matched_substrings'] ?? [],
                     'terms'       => $prediction['terms'] ?? [],
+                    'types'       => $prediction['types'] ?? [],
                 ];
+                if ($placeId !== '') {
+                    $seenIds[$placeId] = true;
+                }
             }
         }
     }
 
     $fallback_query = $input;
-    if (empty($predictions)) {
+    $needsMore = count($predictions) < 5;
+    if ($needsMore) {
         $country_suffix = $country_name;
         if ($country_suffix === '') {
             $country_suffix = $country_code;
@@ -469,17 +476,25 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
                 if ($description === '') {
                     continue;
                 }
+                $placeId = (string) ($result['place_id'] ?? '');
+                if ($placeId !== '' && isset($seenIds[$placeId])) {
+                    continue;
+                }
                 if ($name !== '' && $address !== '' && stripos($address, $name) === false) {
                     $description = $name . ', ' . $address;
                 } elseif ($name !== '' && $address !== '' && stripos($address, $name) !== false) {
                     $description = $address;
                 }
                 $predictions[] = [
-                    'place_id'    => (string) ($result['place_id'] ?? ''),
+                    'place_id'    => $placeId,
                     'description' => $description,
                     'matched_substrings' => [],
                     'terms'       => [],
+                    'types'       => $result['types'] ?? [],
                 ];
+                if ($placeId !== '') {
+                    $seenIds[$placeId] = true;
+                }
                 if (count($predictions) >= 8) {
                     break;
                 }
@@ -494,7 +509,7 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
         }
     }
 
-    if (empty($predictions)) {
+    if (count($predictions) < 5) {
         $geo_params = [
             'address'  => $fallback_query,
             'language' => $lang,
@@ -512,12 +527,20 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
                 if ($address === '') {
                     continue;
                 }
+                $placeId = (string) ($result['place_id'] ?? '');
+                if ($placeId !== '' && isset($seenIds[$placeId])) {
+                    continue;
+                }
                 $predictions[] = [
-                    'place_id'    => (string) ($result['place_id'] ?? ''),
+                    'place_id'    => $placeId,
                     'description' => $address,
                     'matched_substrings' => [],
                     'terms'       => [],
+                    'types'       => $result['types'] ?? [],
                 ];
+                if ($placeId !== '') {
+                    $seenIds[$placeId] = true;
+                }
                 if (count($predictions) >= 8) {
                     break;
                 }

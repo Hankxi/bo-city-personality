@@ -737,6 +737,7 @@
           description,
           matched_substrings: Array.isArray(item.matched_substrings) ? item.matched_substrings : [],
           terms: Array.isArray(item.terms) ? item.terms : [],
+          types: Array.isArray(item.types) ? item.types : [],
         });
       });
       if (typeof limit === 'number' && limit > 0) {
