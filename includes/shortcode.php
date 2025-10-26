@@ -40,6 +40,12 @@ class BO_CP_Shortcodes {
         wp_enqueue_script('bo-cp-form');
         wp_enqueue_style('bo-cp-form');
         $active_lang = bo_cp_preferred_lang('', 'en');
+        $script_data = [
+            'restRoot' => esc_url_raw(rest_url('bo/v1/')),
+            'lang'     => strtolower(bo_cp_preferred_lang($active_lang, 'en')),
+            'placesKey'=> bo_cp_google_api_key('places'),
+        ];
+        wp_localize_script('bo-cp-form', 'boCPData', $script_data);
         $lang_key = strtolower(bo_cp_preferred_lang($active_lang, 'en'));
         $is_chinese = strpos($lang_key, 'zh') === 0;
 
@@ -117,7 +123,7 @@ class BO_CP_Shortcodes {
             <div class="row">
               <label for="bo-cp-hour-slot"><?php echo esc_html($hour_slot_label); ?></label>
               <select id="bo-cp-hour-slot" name="hour_slot">
-                <option value="">--</option>
+                <option value=""><?php echo esc_html($is_chinese ? '请选择（可选）' : __('Select (optional)', 'bo-city-personality')); ?></option>
                 <?php foreach ($hour_slots as $value => $label) : ?>
                   <option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option>
                 <?php endforeach; ?>

@@ -1,4 +1,21 @@
 (function(){
+  const settings = window.boCPData || {};
+  const normalizeRestRoot = (value) => {
+    if (!value) return '/wp-json/bo/v1';
+    try {
+      const str = value.toString();
+      if (!str) return '/wp-json/bo/v1';
+      return str.replace(/\/?$/, '');
+    } catch (err) {
+      return '/wp-json/bo/v1';
+    }
+  };
+  const restRoot = normalizeRestRoot(settings.restRoot);
+  const restUrl = (path='') => {
+    const segment = path.startsWith('/') ? path : `/${path}`;
+    return `${restRoot}${segment}`;
+  };
+
   const $ = (s, r=document) => r.querySelector(s);
 
   const canonKey = (value='') => {
@@ -39,6 +56,10 @@
       const normalized = normalizeLang(state.lang);
       if (normalized) return normalized;
     }
+    const configured = normalizeLang(settings.lang || '');
+    if (configured) {
+      return configured;
+    }
     const html = normalizeLang(document.documentElement && document.documentElement.lang);
     if (html) return html;
     const body = normalizeLang(document.body && document.body.getAttribute('lang'));
@@ -49,6 +70,171 @@
       if (normalized) return normalized;
     }
     return 'en';
+  };
+
+  let googlePlacesLoader = null;
+  const ensureGooglePlaces = () => {
+    if (!settings.placesKey) {
+      return Promise.reject(new Error('Missing Google Places key'));
+    }
+    if (window.google && window.google.maps && window.google.maps.places) {
+      return Promise.resolve(window.google.maps);
+    }
+    if (googlePlacesLoader) {
+      return googlePlacesLoader;
+    }
+    googlePlacesLoader = new Promise((resolve, reject) => {
+      const head = document.head || document.getElementsByTagName('head')[0];
+      const script = document.createElement('script');
+      const params = new URLSearchParams({
+        key: settings.placesKey,
+        libraries: 'places',
+        language: detectLang() || 'en',
+      });
+      script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
+      script.async = true;
+      script.defer = true;
+      script.onerror = () => {
+        googlePlacesLoader = null;
+        reject(new Error('Failed to load Google Maps script'));
+      };
+      script.onload = () => {
+        if (window.google && window.google.maps && window.google.maps.places) {
+          resolve(window.google.maps);
+        } else {
+          googlePlacesLoader = null;
+          reject(new Error('Google Places library unavailable'));
+        }
+      };
+      head.appendChild(script);
+    });
+    return googlePlacesLoader;
+  };
+
+  const googleAutocompleteCache = {};
+
+  const fetchSuggestionsViaGoogle = async (query) => {
+    const trimmed = (query || '').trim();
+    if (trimmed.length < 2) {
+      return [];
+    }
+    const cacheKey = `${trimmed}|${detectLang()}`;
+    if (googleAutocompleteCache[cacheKey]) {
+      return googleAutocompleteCache[cacheKey];
+    }
+    try {
+      const maps = await ensureGooglePlaces();
+      if (!maps || !maps.places) {
+        return [];
+      }
+      const service = fetchSuggestionsViaGoogle._service || new maps.places.AutocompleteService();
+      fetchSuggestionsViaGoogle._service = service;
+      const request = {
+        input: trimmed,
+        types: ['(cities)'],
+        language: detectLang() || 'en',
+      };
+      const predictions = await new Promise((resolve, reject) => {
+        service.getPlacePredictions(request, (items, status) => {
+          if (status === maps.places.PlacesServiceStatus.OK && Array.isArray(items)) {
+            resolve(items);
+            return;
+          }
+          if (status === maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+            resolve([]);
+            return;
+          }
+          reject(new Error(`Google Places status ${status}`));
+        });
+      });
+      const normalized = predictions.map((prediction) => ({
+        place_id: prediction.place_id || '',
+        description: prediction.description || '',
+        matched_substrings: prediction.matched_substrings || [],
+        terms: prediction.terms || [],
+      })).filter((item) => item.description);
+      googleAutocompleteCache[cacheKey] = normalized;
+      return normalized;
+    } catch (err) {
+      console.error('Google Places fallback failed', err);
+      return [];
+    }
+  };
+
+  const parseGoogleAddress = (components) => {
+    let city = '';
+    let country = '';
+    let countryCode = '';
+    if (Array.isArray(components)) {
+      components.forEach((comp) => {
+        if (!comp || typeof comp !== 'object') return;
+        const types = Array.isArray(comp.types) ? comp.types : [];
+        if (types.includes('country')) {
+          country = comp.long_name || comp.short_name || country;
+          countryCode = comp.short_name || countryCode;
+        }
+        if (!city && (types.includes('locality') || types.includes('administrative_area_level_1') || types.includes('administrative_area_level_2'))) {
+          city = comp.long_name || comp.short_name || city;
+        }
+      });
+    }
+    return { city, country, country_code: countryCode };
+  };
+
+  const fetchPlaceDetailsViaGoogle = async (placeId) => {
+    if (!placeId || !settings.placesKey) {
+      return null;
+    }
+    try {
+      const maps = await ensureGooglePlaces();
+      if (!maps || !maps.places) {
+        return null;
+      }
+      if (!fetchPlaceDetailsViaGoogle._container) {
+        const div = document.createElement('div');
+        div.style.display = 'none';
+        document.body.appendChild(div);
+        fetchPlaceDetailsViaGoogle._container = div;
+      }
+      const service = fetchPlaceDetailsViaGoogle._service || new maps.places.PlacesService(fetchPlaceDetailsViaGoogle._container);
+      fetchPlaceDetailsViaGoogle._service = service;
+      const request = {
+        placeId,
+        language: 'en',
+        fields: ['address_component', 'geometry.location', 'formatted_address', 'name', 'place_id'],
+      };
+      const result = await new Promise((resolve, reject) => {
+        service.getDetails(request, (place, status) => {
+          if (status === maps.places.PlacesServiceStatus.OK && place) {
+            resolve(place);
+            return;
+          }
+          if (status === maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+            resolve(null);
+            return;
+          }
+          reject(new Error(`Google Place details status ${status}`));
+        });
+      });
+      if (!result) {
+        return null;
+      }
+      const coords = result.geometry && result.geometry.location;
+      const parsed = parseGoogleAddress(result.address_components);
+      return {
+        place_id: result.place_id || placeId,
+        city: parsed.city || '',
+        country: parsed.country || '',
+        country_code: parsed.country_code || '',
+        formatted_address: result.formatted_address || '',
+        name: result.name || '',
+        lat: coords && typeof coords.lat === 'function' ? coords.lat() : '',
+        lng: coords && typeof coords.lng === 'function' ? coords.lng() : '',
+      };
+    } catch (err) {
+      console.error('Google details fallback failed', err);
+      return null;
+    }
   };
 
   const fetchSections = async (persona, lang, keys) => {
@@ -78,7 +264,7 @@
           lang: normalizedLang,
           keys: missing.join(','),
         });
-        const res = await fetch(`/wp-json/bo/v1/sections?${params.toString()}`);
+        const res = await fetch(`${restUrl('sections')}?${params.toString()}`);
         if (res.ok) {
           const payload = await res.json();
           if (payload && payload.sections && typeof payload.sections === 'object') {
@@ -234,15 +420,34 @@
     }
     const params = new URLSearchParams({ place_id: placeId, lang: 'en' });
     try {
-      const res = await fetch(`/wp-json/bo/v1/place-details?${params.toString()}`);
+      const res = await fetch(`${restUrl('place-details')}?${params.toString()}`);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       const payload = await res.json();
+      if (payload && (!payload.city || !payload.country) && settings.placesKey) {
+        const supplement = await fetchPlaceDetailsViaGoogle(placeId);
+        if (supplement) {
+          const merged = Object.assign({}, payload, {
+            city: payload.city || supplement.city || '',
+            country: payload.country || supplement.country || '',
+            place_id: payload.place_id || supplement.place_id || placeId,
+          });
+          placeDetailsCache.set(placeId, merged);
+          return merged;
+        }
+      }
       placeDetailsCache.set(placeId, payload);
       return payload;
     } catch (err) {
       console.error('Failed to fetch place details', err);
+      if (settings.placesKey) {
+        const fallback = await fetchPlaceDetailsViaGoogle(placeId);
+        if (fallback) {
+          placeDetailsCache.set(placeId, fallback);
+          return fallback;
+        }
+      }
       return null;
     }
   };
@@ -367,6 +572,21 @@
         }
       }
 
+      if (item.place_id && (!resolvedCity || !resolvedCountry) && settings.placesKey) {
+        const fallbackDetails = await fetchPlaceDetailsViaGoogle(item.place_id);
+        if (fallbackDetails) {
+          if (!resolvedCity && fallbackDetails.city) {
+            resolvedCity = fallbackDetails.city.toString();
+          }
+          if (!resolvedCountry && fallbackDetails.country) {
+            resolvedCountry = fallbackDetails.country.toString();
+          }
+          if (!placeField.value && fallbackDetails.place_id) {
+            placeField.value = fallbackDetails.place_id;
+          }
+        }
+      }
+
       if ((!resolvedCity || !resolvedCountry) && Array.isArray(item.terms)) {
         if (!resolvedCity && item.terms[0] && item.terms[0].value) {
           resolvedCity = item.terms[0].value;
@@ -409,7 +629,7 @@
           input: trimmed,
           lang: detectLang(),
         });
-        const res = await fetch(`/wp-json/bo/v1/places?${params.toString()}`);
+        const res = await fetch(`${restUrl('places')}?${params.toString()}`);
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -418,6 +638,9 @@
           return;
         }
         currentSuggestions = Array.isArray(payload.predictions) ? payload.predictions : [];
+        if (!currentSuggestions.length && settings.placesKey) {
+          currentSuggestions = await fetchSuggestionsViaGoogle(trimmed);
+        }
         if (!currentSuggestions.length) {
           hideSuggestions();
           setStatus(input.dataset.noResults || '', 'empty');
@@ -428,8 +651,18 @@
       } catch (err) {
         console.error('Failed to fetch suggestions', err);
         if (currentToken === requestToken) {
-          hideSuggestions();
-          setStatus(input.dataset.fetchError || '', 'error');
+          let resolved = [];
+          if (settings.placesKey) {
+            resolved = await fetchSuggestionsViaGoogle(trimmed);
+          }
+          if (resolved.length) {
+            currentSuggestions = resolved;
+            renderSuggestions(currentSuggestions);
+            setStatus('');
+          } else {
+            hideSuggestions();
+            setStatus(input.dataset.fetchError || '', 'error');
+          }
         }
       }
     };
@@ -549,7 +782,7 @@
       return;
     }
     const qs = new URLSearchParams(formData);
-    const url = `/wp-json/bo/v1/geo?` + qs.toString();
+    const url = `${restUrl('geo')}?${qs.toString()}`;
 
     const res = await fetch(url);
     const data = await res.json();
