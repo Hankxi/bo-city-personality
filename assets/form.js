@@ -1,5 +1,25 @@
 (function(){
   const settings = window.boCPData || {};
+  const debugEnabled = Boolean(settings.debug);
+  const logDebug = (...args) => {
+    if (!debugEnabled || typeof console === 'undefined') {
+      return;
+    }
+    const method = console.debug ? 'debug' : 'log';
+    try {
+      console[method].apply(console, ['[bo-cp]'].concat(args));
+    } catch (err) {
+      console.log('[bo-cp]', ...args);
+    }
+  };
+
+  if (debugEnabled) {
+    const redacted = Object.assign({}, settings);
+    if (redacted.placesKey) {
+      redacted.placesKey = `${String(redacted.placesKey).slice(0, 6)}…`;
+    }
+    logDebug('Debug mode enabled', redacted);
+  }
   const normalizeRestRoot = (value) => {
     if (!value) return '/wp-json/bo/v1';
     try {
@@ -40,6 +60,7 @@
     if (!window.__boCP.sectionsCache) {
       window.__boCP.sectionsCache = {};
     }
+    window.__boCP.debug = debugEnabled;
     return window.__boCP;
   };
 
@@ -54,30 +75,46 @@
     const state = ensureState();
     if (state.lang) {
       const normalized = normalizeLang(state.lang);
-      if (normalized) return normalized;
+      if (normalized) {
+        logDebug('detectLang from state', normalized);
+        return normalized;
+      }
     }
     const configured = normalizeLang(settings.lang || '');
     if (configured) {
+      logDebug('detectLang from settings', configured);
       return configured;
     }
     const html = normalizeLang(document.documentElement && document.documentElement.lang);
-    if (html) return html;
+    if (html) {
+      logDebug('detectLang from <html>', html);
+      return html;
+    }
     const body = normalizeLang(document.body && document.body.getAttribute('lang'));
-    if (body) return body;
+    if (body) {
+      logDebug('detectLang from <body>', body);
+      return body;
+    }
     const hidden = document.querySelector('#bo-cp-form input[name="lang"]');
     if (hidden && hidden.value) {
       const normalized = normalizeLang(hidden.value);
-      if (normalized) return normalized;
+      if (normalized) {
+        logDebug('detectLang from hidden field', normalized);
+        return normalized;
+      }
     }
+    logDebug('detectLang defaulting to en');
     return 'en';
   };
 
   let googlePlacesLoader = null;
   const ensureGooglePlaces = () => {
+    logDebug('ensureGooglePlaces invoked');
     if (!settings.placesKey) {
       return Promise.reject(new Error('Missing Google Places key'));
     }
     if (window.google && window.google.maps && window.google.maps.places) {
+      logDebug('Google Places already loaded');
       return Promise.resolve(window.google.maps);
     }
     if (googlePlacesLoader) {
@@ -100,8 +137,10 @@
       };
       script.onload = () => {
         if (window.google && window.google.maps && window.google.maps.places) {
+          logDebug('Google Places script loaded successfully');
           resolve(window.google.maps);
         } else {
+          logDebug('Google Places script loaded but API unavailable');
           googlePlacesLoader = null;
           reject(new Error('Google Places library unavailable'));
         }
@@ -116,15 +155,19 @@
   const fetchSuggestionsViaGoogle = async (query) => {
     const trimmed = (query || '').trim();
     if (trimmed.length < 2) {
+      logDebug('Google suggestions skipped, query too short', trimmed);
       return [];
     }
     const cacheKey = `${trimmed}|${detectLang()}`;
     if (googleAutocompleteCache[cacheKey]) {
+      logDebug('Using cached Google suggestions', cacheKey, googleAutocompleteCache[cacheKey]);
       return googleAutocompleteCache[cacheKey];
     }
     try {
+      logDebug('Fetching Google suggestions', trimmed);
       const maps = await ensureGooglePlaces();
       if (!maps || !maps.places) {
+        logDebug('Google maps places unavailable after ensure');
         return [];
       }
       const service = fetchSuggestionsViaGoogle._service || new maps.places.AutocompleteService();
@@ -137,13 +180,16 @@
       const predictions = await new Promise((resolve, reject) => {
         service.getPlacePredictions(request, (items, status) => {
           if (status === maps.places.PlacesServiceStatus.OK && Array.isArray(items)) {
+            logDebug('Google suggestions returned', items.length);
             resolve(items);
             return;
           }
           if (status === maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+            logDebug('Google suggestions zero results');
             resolve([]);
             return;
           }
+          logDebug('Google suggestions status', status);
           reject(new Error(`Google Places status ${status}`));
         });
       });
@@ -154,9 +200,11 @@
         terms: prediction.terms || [],
       })).filter((item) => item.description);
       googleAutocompleteCache[cacheKey] = normalized;
+      logDebug('Cached Google suggestions', cacheKey, normalized.length);
       return normalized;
     } catch (err) {
       console.error('Google Places fallback failed', err);
+      logDebug('Google suggestions error', err);
       return [];
     }
   };
@@ -183,11 +231,14 @@
 
   const fetchPlaceDetailsViaGoogle = async (placeId) => {
     if (!placeId || !settings.placesKey) {
+      logDebug('Skipping Google place details', { placeId, hasKey: Boolean(settings.placesKey) });
       return null;
     }
     try {
+      logDebug('Fetching Google place details', placeId);
       const maps = await ensureGooglePlaces();
       if (!maps || !maps.places) {
+        logDebug('Google maps places unavailable for details');
         return null;
       }
       if (!fetchPlaceDetailsViaGoogle._container) {
@@ -206,17 +257,21 @@
       const result = await new Promise((resolve, reject) => {
         service.getDetails(request, (place, status) => {
           if (status === maps.places.PlacesServiceStatus.OK && place) {
+            logDebug('Google place details returned');
             resolve(place);
             return;
           }
           if (status === maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+            logDebug('Google place details zero results');
             resolve(null);
             return;
           }
+          logDebug('Google place details status', status);
           reject(new Error(`Google Place details status ${status}`));
         });
       });
       if (!result) {
+        logDebug('Google place details empty result');
         return null;
       }
       const coords = result.geometry && result.geometry.location;
@@ -233,6 +288,7 @@
       };
     } catch (err) {
       console.error('Google details fallback failed', err);
+      logDebug('Google place details error', err);
       return null;
     }
   };
@@ -240,11 +296,14 @@
   const fetchSections = async (persona, lang, keys) => {
     const state = ensureState();
     if (!Array.isArray(keys) || !keys.length) {
+      logDebug('fetchSections called without keys', { persona, lang });
       return {};
     }
 
     const canonPersona = canonKey(persona);
     const normalizedLang = (lang || 'en').toLowerCase();
+
+    logDebug('fetchSections start', { persona: canonPersona, lang: normalizedLang, keys });
 
     if (!state.sectionsCache[canonPersona]) {
       state.sectionsCache[canonPersona] = {};
@@ -257,6 +316,7 @@
 
     const missing = keys.filter((k) => !(k in langCache));
     if (missing.length) {
+      logDebug('fetchSections requesting missing keys', missing);
       let fetched = false;
       try {
         const params = new URLSearchParams({
@@ -271,13 +331,16 @@
             Object.entries(payload.sections).forEach(([key, value]) => {
               langCache[key] = value || { title: '', content_html: '' };
             });
+            logDebug('fetchSections populated cache', Object.keys(payload.sections || {}));
           }
           fetched = true;
         } else {
           console.error('Failed to fetch sections', res.status, res.statusText);
+          logDebug('fetchSections fetch error status', res.status);
         }
       } catch (err) {
         console.error('Failed to fetch sections', err);
+        logDebug('fetchSections fetch exception', err);
       }
       if (fetched) {
         missing.forEach((key) => {
@@ -292,11 +355,13 @@
     keys.forEach((key) => {
       out[key] = langCache[key] || { title: '', content_html: '' };
     });
+    logDebug('fetchSections result ready', { persona: canonPersona, lang: normalizedLang, keys });
     return out;
   };
 
   const renderSection = (el, row, lang, persona, showTitle) => {
     if (!el) return;
+    logDebug('renderSection', { element: el.dataset.section || el.id, lang, persona, hasContent: Boolean(row && row.content_html) });
     const content = row && row.content_html ? String(row.content_html) : '';
     const title = row && row.title ? String(row.title) : '';
     let html = '';
@@ -315,20 +380,24 @@
   const updateDynamicSections = async (options = {}) => {
     const placeholders = Array.from(document.querySelectorAll('[data-bo-cp-dynamic="1"]'));
     if (!placeholders.length) {
+      logDebug('updateDynamicSections skipped, no placeholders');
       return;
     }
 
     const persona = options.persona_key || options.name || '';
     if (!persona) {
+      logDebug('updateDynamicSections skipped, missing persona', options);
       return;
     }
 
     const lang = (options.lang || 'en').toLowerCase();
     const keys = Array.from(new Set(placeholders.map((el) => el.dataset.section).filter(Boolean)));
     if (!keys.length) {
+      logDebug('updateDynamicSections skipped, no keys found');
       return;
     }
 
+    logDebug('updateDynamicSections start', { persona, lang, keys });
     const primary = await fetchSections(persona, lang, keys);
 
     const fallbackPlan = new Map();
@@ -369,6 +438,7 @@
       if (!row) {
         row = { title: '', content_html: '' };
       }
+      logDebug('updateDynamicSections render', { key, lang: usedLang, hasContent: Boolean(row.content_html) });
       renderSection(el, row, usedLang, canonKey(persona), showTitle);
     });
   };
@@ -377,18 +447,27 @@
 
   const initBirthDateToggle = () => {
     const form = document.querySelector('#bo-cp-form');
-    if (!form) return;
+    if (!form) {
+      logDebug('initBirthDateToggle skipped, form not found');
+      return;
+    }
     const input = form.querySelector('[data-date-input]');
     const toggle = form.querySelector('[data-date-toggle]');
-    if (!input || !toggle) return;
+    if (!input || !toggle) {
+      logDebug('initBirthDateToggle skipped, missing elements', { hasInput: Boolean(input), hasToggle: Boolean(toggle) });
+      return;
+    }
 
     const manualLabel = toggle.dataset.manualLabel || 'Manual Entry';
     const pickerLabel = toggle.dataset.pickerLabel || 'Use Date Picker';
     let manualMode = false;
 
+    logDebug('initBirthDateToggle ready', { defaultValue: input.value });
+
     toggle.addEventListener('click', (event) => {
       event.preventDefault();
       manualMode = !manualMode;
+      logDebug('Birth date mode toggled', { manualMode });
       if (manualMode) {
         input.setAttribute('type', 'text');
         if (!input.placeholder) {
@@ -414,6 +493,7 @@
   };
 
   const fetchWithTimeout = async (input, init = {}, timeoutMs = 8000) => {
+    logDebug('fetchWithTimeout', { url: typeof input === 'string' ? input : 'Request', timeoutMs });
     if (typeof AbortController === 'undefined') {
       return fetch(input, init);
     }
@@ -431,17 +511,21 @@
   const fetchPlaceDetails = async (placeId) => {
     if (!placeId) return null;
     if (placeDetailsCache.has(placeId)) {
+      logDebug('Using cached place details', placeId);
       return placeDetailsCache.get(placeId);
     }
     const params = new URLSearchParams({ place_id: placeId, lang: 'en' });
     try {
+      logDebug('Fetching place details via REST', placeId);
       const res = await fetchWithTimeout(`${restUrl('place-details')}?${params.toString()}`, {
         credentials: 'same-origin'
       }, 7000);
       if (!res.ok) {
+        logDebug('REST place details HTTP error', res.status);
         throw new Error(`HTTP ${res.status}`);
       }
       const payload = await res.json();
+      logDebug('REST place details payload', payload);
       if (payload && (!payload.city || !payload.country) && settings.placesKey) {
         const supplement = await fetchPlaceDetailsViaGoogle(placeId);
         if (supplement) {
@@ -450,11 +534,13 @@
             country: payload.country || supplement.country || '',
             place_id: payload.place_id || supplement.place_id || placeId,
           });
+          logDebug('Merged REST place details with Google fallback', merged);
           placeDetailsCache.set(placeId, merged);
           return merged;
         }
       }
       placeDetailsCache.set(placeId, payload);
+      logDebug('Cached REST place details', placeId);
       return payload;
     } catch (err) {
       console.error('Failed to fetch place details', err);
@@ -462,18 +548,26 @@
         const fallback = await fetchPlaceDetailsViaGoogle(placeId);
         if (fallback) {
           placeDetailsCache.set(placeId, fallback);
+          logDebug('Using Google fallback for place details', fallback);
           return fallback;
         }
       }
+      logDebug('Place details fetch failed completely', placeId);
       return null;
     }
   };
 
   const initLocationPicker = () => {
     const form = document.querySelector('#bo-cp-form');
-    if (!form) return;
+    if (!form) {
+      logDebug('initLocationPicker skipped, form not found');
+      return;
+    }
     const wrapper = form.querySelector('[data-location-wrapper]');
-    if (!wrapper) return;
+    if (!wrapper) {
+      logDebug('initLocationPicker skipped, wrapper not found');
+      return;
+    }
     const input = wrapper.querySelector('[data-location-input]');
     const suggestionsEl = wrapper.querySelector('[data-location-suggestions]');
     const statusEl = wrapper.querySelector('[data-location-status]');
@@ -482,8 +576,11 @@
     const countryField = form.querySelector('input[name="country"]');
     const placeField = form.querySelector('input[name="place_id"]');
     if (!input || !suggestionsEl || !statusEl || !cityField || !countryField || !placeField) {
+      logDebug('initLocationPicker missing elements', { hasInput: Boolean(input), hasSuggestions: Boolean(suggestionsEl), hasStatus: Boolean(statusEl), hasCity: Boolean(cityField), hasCountry: Boolean(countryField), hasPlace: Boolean(placeField) });
       return;
     }
+
+    logDebug('initLocationPicker ready');
 
     let debounceTimer = null;
     let requestToken = 0;
@@ -493,6 +590,7 @@
 
     const setStatus = (message = '', state = '') => {
       if (!statusEl) return;
+      logDebug('Location status update', { message, state });
       if (message) {
         statusEl.textContent = message;
         statusEl.hidden = false;
@@ -509,6 +607,7 @@
     };
 
     const hideSuggestions = () => {
+      logDebug('Hiding suggestions');
       suggestionsEl.innerHTML = '';
       suggestionsEl.hidden = true;
       activeIndex = -1;
@@ -516,12 +615,14 @@
     };
 
     const resetHiddenFields = () => {
+      logDebug('Resetting hidden location fields');
       cityField.value = '';
       countryField.value = '';
       placeField.value = '';
     };
 
     const dedupeSuggestions = (items, limit = 8) => {
+      logDebug('dedupeSuggestions input', { count: Array.isArray(items) ? items.length : 0, limit });
       const seen = new Set();
       const out = [];
       items.forEach((item) => {
@@ -546,12 +647,16 @@
         });
       });
       if (typeof limit === 'number' && limit > 0) {
-        return out.slice(0, limit);
+        const sliced = out.slice(0, limit);
+        logDebug('dedupeSuggestions output', { count: sliced.length });
+        return sliced;
       }
+      logDebug('dedupeSuggestions output', { count: out.length });
       return out;
     };
 
     const renderSuggestions = (items) => {
+      logDebug('Rendering suggestions', { count: items.length });
       suggestionsEl.innerHTML = '';
       items.forEach((item, index) => {
         const li = document.createElement('li');
@@ -579,6 +684,7 @@
     };
 
     const setActiveIndex = (index) => {
+      logDebug('Setting active suggestion index', index);
       activeIndex = index;
       const buttons = suggestionsEl.querySelectorAll('.bo-cp-location__suggestion');
       let activeId = '';
@@ -599,6 +705,7 @@
 
     const applySuggestion = async (item) => {
       if (!item) return;
+      logDebug('Applying suggestion', item);
       hideSuggestions();
       input.value = item.description || '';
       if (clearBtn) {
@@ -609,6 +716,7 @@
       let resolvedCountry = '';
 
       if (item.place_id) {
+        logDebug('Fetching details for applied suggestion', item.place_id);
         const details = await fetchPlaceDetails(item.place_id);
         if (details) {
           resolvedCity = (details.city || '').toString().trim();
@@ -620,6 +728,7 @@
       }
 
       if (item.place_id && (!resolvedCity || !resolvedCountry) && settings.placesKey) {
+        logDebug('Attempting Google fallback for suggestion', item.place_id);
         const fallbackDetails = await fetchPlaceDetailsViaGoogle(item.place_id);
         if (fallbackDetails) {
           if (!resolvedCity && fallbackDetails.city) {
@@ -635,6 +744,7 @@
       }
 
       if ((!resolvedCity || !resolvedCountry) && Array.isArray(item.terms)) {
+        logDebug('Falling back to terms parsing', item.terms);
         if (!resolvedCity && item.terms[0] && item.terms[0].value) {
           resolvedCity = item.terms[0].value;
         }
@@ -645,6 +755,7 @@
       }
 
       if ((!resolvedCity || !resolvedCountry) && item.description) {
+        logDebug('Falling back to description parsing', item.description);
         const parts = item.description.split(',').map((part) => part.trim()).filter(Boolean);
         if (!resolvedCountry && parts.length) {
           resolvedCountry = parts[parts.length - 1];
@@ -656,6 +767,7 @@
 
       cityField.value = resolvedCity || '';
       countryField.value = resolvedCountry || '';
+      logDebug('Resolved suggestion details', { resolvedCity, resolvedCountry, placeId: placeField.value });
 
       if (!resolvedCity || !resolvedCountry) {
         setStatus(input.dataset.errorSelect || '', 'error');
@@ -666,6 +778,7 @@
 
     const fetchSuggestions = async (query) => {
       const trimmed = (query || '').toString().trim();
+      logDebug('fetchSuggestions called', trimmed);
       if (!trimmed || trimmed.length < 2) {
         hideSuggestions();
         setStatus('');
@@ -673,12 +786,14 @@
         return;
       }
       if (trimmed === lastQuery && currentSuggestions.length) {
+        logDebug('Using cached suggestions for query', trimmed);
         renderSuggestions(currentSuggestions);
         return;
       }
 
       lastQuery = trimmed;
       const currentToken = ++requestToken;
+      logDebug('Fetching suggestions', { trimmed, token: currentToken });
       setStatus(input.dataset.loadingLabel || '', 'loading');
       hideSuggestions();
 
@@ -696,10 +811,12 @@
         } else {
           setStatus(input.dataset.noResults || '', 'empty');
         }
+        logDebug('finalizeEmptyState executed', { serverError: Boolean(serverError) });
       };
 
       if (settings.placesKey) {
         googleTimeoutId = setTimeout(() => {
+          logDebug('Google suggestions timeout reached');
           finalizeEmptyState();
         }, 4000);
       }
@@ -709,30 +826,36 @@
           input: trimmed,
           lang: detectLang(),
         });
+        logDebug('Requesting server suggestions', params.toString());
         const res = await fetchWithTimeout(`${restUrl('places')}?${params.toString()}`, {
           credentials: 'same-origin'
         }, 5000);
         if (!res.ok) {
+          logDebug('Server suggestions HTTP error', res.status);
           throw new Error(`HTTP ${res.status}`);
         }
         const payload = await res.json();
+        logDebug('Server suggestions payload', payload);
         if (Array.isArray(payload.predictions)) {
           serverResults = payload.predictions;
         }
       } catch (err) {
         serverError = err;
         console.error('Failed to fetch suggestions', err);
+        logDebug('Server suggestions error', err);
       }
 
       if (currentToken !== requestToken) {
         if (googleTimeoutId) {
           clearTimeout(googleTimeoutId);
         }
+        logDebug('Suggestion request aborted due to stale token', { token: currentToken, latest: requestToken });
         return;
       }
 
       currentSuggestions = dedupeSuggestions(serverResults);
       if (currentSuggestions.length) {
+        logDebug('Server suggestions ready', currentSuggestions);
         renderSuggestions(currentSuggestions);
         setStatus('');
         if (googleTimeoutId) {
@@ -750,15 +873,18 @@
             googleTimeoutId = null;
           }
           if (currentToken !== requestToken) {
+            logDebug('Google suggestions arrived too late', { token: currentToken, latest: requestToken });
             return;
           }
           if (!Array.isArray(googleResults) || !googleResults.length) {
+            logDebug('Google suggestions empty', googleResults);
             finalizeEmptyState();
             return;
           }
           const combined = dedupeSuggestions(currentSuggestions.concat(googleResults));
           currentSuggestions = combined;
           if (combined.length) {
+            logDebug('Combined suggestions ready', combined);
             renderSuggestions(combined);
             setStatus('');
           } else {
@@ -770,6 +896,7 @@
             googleTimeoutId = null;
           }
           console.error('Google suggestion fallback failed', err);
+          logDebug('Google suggestion fallback error', err);
           finalizeEmptyState();
         });
       }
@@ -780,6 +907,7 @@
     };
 
     input.addEventListener('input', () => {
+      logDebug('Location input change', input.value);
       resetHiddenFields();
       if (clearBtn) {
         clearBtn.hidden = input.value.trim() === '';
@@ -790,17 +918,20 @@
       }
       const value = input.value;
       debounceTimer = setTimeout(() => {
+        logDebug('Triggering debounced suggestion fetch', value);
         fetchSuggestions(value);
       }, 250);
     });
 
     input.addEventListener('focus', () => {
+      logDebug('Location input focused');
       if (currentSuggestions.length) {
         renderSuggestions(currentSuggestions);
       }
     });
 
     input.addEventListener('keydown', (event) => {
+      logDebug('Location input keydown', event.key);
       if (suggestionsEl.hidden) {
         if (event.key === 'Enter') {
           const message = input.dataset.errorSelect || '';
@@ -834,6 +965,7 @@
     suggestionsEl.addEventListener('mousedown', (event) => {
       const button = event.target.closest('.bo-cp-location__suggestion');
       if (button) {
+        logDebug('Suggestion mousedown', button.dataset.index);
         event.preventDefault();
       }
     });
@@ -842,6 +974,7 @@
       const button = event.target.closest('.bo-cp-location__suggestion');
       if (!button) return;
       event.preventDefault();
+      logDebug('Suggestion clicked', button.dataset.index);
       const index = parseInt(button.dataset.index || '-1', 10);
       if (index >= 0 && currentSuggestions[index]) {
         applySuggestion(currentSuggestions[index]);
@@ -851,6 +984,7 @@
     if (clearBtn) {
       clearBtn.addEventListener('click', (event) => {
         event.preventDefault();
+        logDebug('Location clear clicked');
         input.value = '';
         resetHiddenFields();
         hideSuggestions();
@@ -862,6 +996,7 @@
 
     document.addEventListener('click', (event) => {
       if (!wrapper.contains(event.target)) {
+        logDebug('Outside click detected, hiding suggestions');
         hideSuggestions();
       }
     });
@@ -874,9 +1009,11 @@
     const form = e.target;
     if (form.id !== 'bo-cp-form') return;
     e.preventDefault();
+    logDebug('Form submission intercepted');
 
     const formData = new FormData(form);
     const lang = detectLang();
+    logDebug('Detected submission language', lang);
     formData.set('lang', lang);
     const hidden = form.querySelector('input[name="lang"]');
     if (hidden) {
@@ -885,6 +1022,7 @@
     let city = (formData.get('city') || '').toString().trim();
     let country = (formData.get('country') || '').toString().trim();
     const placeId = (formData.get('place_id') || '').toString().trim();
+    logDebug('Initial submission data', { city, country, placeId });
 
     if ((!city || !country) && placeId) {
       try {
@@ -907,12 +1045,15 @@
             }
           }
         }
+        logDebug('Resolved submission data after REST details', { city, country });
       } catch (err) {
         console.error('Failed to resolve place details before submit', err);
+        logDebug('Error resolving place details before submit', err);
       }
     }
 
     if (!city || !country) {
+      logDebug('Submission blocked due to missing city/country', { city, country });
       const locationInput = form.querySelector('[data-location-input]');
       const message = locationInput ? (locationInput.dataset.errorSelect || 'Please select a city from the suggestions.') : 'Please select a city from the suggestions.';
       alert(message);
@@ -923,12 +1064,15 @@
     }
     const qs = new URLSearchParams(formData);
     const url = `${restUrl('geo')}?${qs.toString()}`;
+    logDebug('Submitting geo request', url);
 
     const res = await fetch(url);
     const data = await res.json();
+    logDebug('Geo response received', data);
 
     if (data.error) {
       alert(data.error);
+      logDebug('Geo response error', data.error);
       return;
     }
 
@@ -947,9 +1091,11 @@
       token: data.token,
       lang: data.lang ? normalizeLang(data.lang) || lang : lang
     };
+    logDebug('Cached persona result', window.__boCP);
     ensureState();
     updateDynamicSections(window.__boCP);
   });
 
+  logDebug('bo-cp form script initialized');
   // Removed manual section loader; dynamic placeholders hydrate automatically.
 })();

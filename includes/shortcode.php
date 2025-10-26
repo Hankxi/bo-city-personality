@@ -45,6 +45,7 @@ class BO_CP_Shortcodes {
             'lang'     => strtolower(bo_cp_preferred_lang($active_lang, 'en')),
             'placesKey'=> bo_cp_google_api_key('places'),
         ];
+        $script_data['debug'] = (bool) apply_filters('bo_cp_form_debug', defined('WP_DEBUG') && WP_DEBUG);
         wp_localize_script('bo-cp-form', 'boCPData', $script_data);
         $lang_key = strtolower(bo_cp_preferred_lang($active_lang, 'en'));
         $is_chinese = strpos($lang_key, 'zh') === 0;
