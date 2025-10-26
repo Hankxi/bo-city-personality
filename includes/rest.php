@@ -8,19 +8,44 @@ require_once __DIR__ . '/bo-cp-io.php';
 require_once __DIR__ . '/helpers.php';
 require_once __DIR__ . '/algorithm.php';
 
-/** Utility: send caching headers and possibly 304 */
+/**
+ * Utility: apply caching headers for persona payloads and detect conditional requests.
+ *
+ * Returns a WP_REST_Response with 304 status when the incoming request matches the
+ * current ETag/Last-Modified metadata; otherwise it sends the headers and returns null
+ * so the caller can continue assembling the response body.
+ */
 function bo_cp_send_cache_headers(string $persona_key) {
     $meta = bo_cp_persona_http_meta($persona_key);
-    header('ETag: ' . $meta['etag']);
-    header('Last-Modified: ' . $meta['lastmod']);
-    header('Cache-Control: max-age=300, public');
+    $headers = [
+        'ETag'          => $meta['etag'],
+        'Last-Modified' => $meta['lastmod'],
+        'Cache-Control' => 'max-age=300, public',
+    ];
 
-    $inm = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
-    $ims = $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '';
-    if ( $inm === $meta['etag'] || $ims === $meta['lastmod'] ) {
-        status_header(304);
-        exit;
+    $server = function_exists('rest_get_server') ? rest_get_server() : null;
+    foreach ($headers as $name => $value) {
+        if ($server instanceof WP_REST_Server) {
+            $server->send_header($name, $value);
+        } elseif (!headers_sent()) {
+            header($name . ': ' . $value);
+        }
     }
+
+    $inm = trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '');
+    $ims = trim($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '');
+    if ($inm === $meta['etag'] || $ims === $meta['lastmod']) {
+        if (!class_exists('WP_REST_Response') && defined('ABSPATH')) {
+            require_once ABSPATH . WPINC . '/rest-api/class-wp-rest-response.php';
+        }
+        $response = new WP_REST_Response(null, 304);
+        foreach ($headers as $name => $value) {
+            $response->header($name, $value);
+        }
+        return $response;
+    }
+
+    return null;
 }
 
 function bo_cp_google_places_request(string $endpoint, array $params, string $cache_key) {
@@ -708,7 +733,10 @@ add_action('rest_api_init', function(){
                 return new WP_Error('bad_request', 'Missing persona or key', ['status'=>400]);
             }
 
-            bo_cp_send_cache_headers($persona);
+            $maybe_not_modified = bo_cp_send_cache_headers($persona);
+            if ($maybe_not_modified instanceof WP_REST_Response) {
+                return $maybe_not_modified;
+            }
 
             $sections = bo_cp_load_sections($persona, $lang);
             $one = $sections[$key] ?? ['title'=>'', 'content'=>''];
@@ -741,7 +769,10 @@ add_action('rest_api_init', function(){
                 return new WP_Error('bad_request', 'Missing persona', ['status'=>400]);
             }
 
-            bo_cp_send_cache_headers($persona);
+            $maybe_not_modified = bo_cp_send_cache_headers($persona);
+            if ($maybe_not_modified instanceof WP_REST_Response) {
+                return $maybe_not_modified;
+            }
 
             $sections = bo_cp_load_sections($persona, $lang);
             $out = [];
