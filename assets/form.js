@@ -26,6 +26,31 @@
     return window.__boCP;
   };
 
+  const normalizeLang = (value='') => {
+    const str = (value || '').toString().trim().toLowerCase();
+    if (!str) return '';
+    const match = str.match(/^[a-z]{2,3}/);
+    return match ? match[0] : str;
+  };
+
+  const detectLang = () => {
+    const state = ensureState();
+    if (state.lang) {
+      const normalized = normalizeLang(state.lang);
+      if (normalized) return normalized;
+    }
+    const html = normalizeLang(document.documentElement && document.documentElement.lang);
+    if (html) return html;
+    const body = normalizeLang(document.body && document.body.getAttribute('lang'));
+    if (body) return body;
+    const hidden = document.querySelector('#bo-cp-form input[name="lang"]');
+    if (hidden && hidden.value) {
+      const normalized = normalizeLang(hidden.value);
+      if (normalized) return normalized;
+    }
+    return 'en';
+  };
+
   const fetchSections = async (persona, lang, keys) => {
     const state = ensureState();
     if (!Array.isArray(keys) || !keys.length) {
@@ -167,7 +192,14 @@
     if (form.id !== 'bo-cp-form') return;
     e.preventDefault();
 
-    const qs = new URLSearchParams(new FormData(form));
+    const formData = new FormData(form);
+    const lang = detectLang();
+    formData.set('lang', lang);
+    const hidden = form.querySelector('input[name="lang"]');
+    if (hidden) {
+      hidden.value = lang;
+    }
+    const qs = new URLSearchParams(formData);
     const url = `/wp-json/bo/v1/geo?` + qs.toString();
 
     const res = await fetch(url);
@@ -191,7 +223,7 @@
       persona_key: data.persona_key || data.name,
       display_title: displayTitle,
       token: data.token,
-      lang: data.lang || 'en'
+      lang: data.lang ? normalizeLang(data.lang) || lang : lang
     };
     ensureState();
     updateDynamicSections(window.__boCP);

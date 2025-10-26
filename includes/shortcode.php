@@ -12,7 +12,7 @@ class BO_CP_Shortcodes {
     }
 
     public static function assets() {
-        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.2', true);
+        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.3', true);
         wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.0.0');
     }
 
@@ -39,9 +39,11 @@ class BO_CP_Shortcodes {
     public static function form($atts = [], $content = '') {
         wp_enqueue_script('bo-cp-form');
         wp_enqueue_style('bo-cp-form');
+        $active_lang = bo_cp_preferred_lang('', 'en');
         ob_start(); ?>
         <div class="bo-cp-widget">
           <form id="bo-cp-form">
+            <input type="hidden" name="lang" value="<?php echo esc_attr($active_lang); ?>">
             <div class="row">
               <label>Country</label>
               <input type="text" name="country" required placeholder="Canada">
