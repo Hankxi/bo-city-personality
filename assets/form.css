@@ -1,1 +1,174 @@
 /* Legacy form reset for rewrite */
+
+:root {
+  --bo-cp-input-border: rgba(15, 23, 42, 0.14);
+  --bo-cp-input-bg: #ffffff;
+  --bo-cp-input-bg-alt: #f8fafc;
+  --bo-cp-input-radius: 12px;
+  --bo-cp-pill-radius: 999px;
+  --bo-cp-pill-bg: #eef2ff;
+  --bo-cp-pill-hover-bg: #e0e7ff;
+  --bo-cp-pill-text: #1f2937;
+  --bo-cp-pill-border: rgba(79, 70, 229, 0.24);
+}
+
+[data-location-wrapper] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+[data-location-wrapper] input[data-location-input] {
+  flex: 1 1 240px;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid var(--bo-cp-input-border);
+  border-radius: var(--bo-cp-input-radius);
+  background: var(--bo-cp-input-bg);
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: #0f172a;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-location-wrapper] input[data-location-input]:focus {
+  outline: none;
+  border-color: rgba(79, 70, 229, 0.6);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.16);
+  background: var(--bo-cp-input-bg-alt);
+}
+
+[data-location-wrapper] [data-location-clear],
+[data-date-toggle] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  min-height: 48px;
+  border-radius: var(--bo-cp-pill-radius);
+  border: 1px solid var(--bo-cp-pill-border);
+  background: var(--bo-cp-pill-bg);
+  color: var(--bo-cp-pill-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+[data-location-wrapper] [data-location-clear]:hover,
+[data-location-wrapper] [data-location-clear]:focus,
+[data-date-toggle]:hover,
+[data-date-toggle]:focus {
+  outline: none;
+  background: var(--bo-cp-pill-hover-bg);
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.18);
+}
+
+[data-location-wrapper] [data-location-status] {
+  flex-basis: 100%;
+  font-size: 0.82rem;
+  color: #6366f1;
+  min-height: 1.1em;
+}
+
+[data-location-wrapper] [data-location-status][data-state="error"] {
+  color: #dc2626;
+}
+
+[data-location-wrapper] [data-location-status][data-state="empty"] {
+  color: #6b7280;
+}
+
+[data-location-wrapper] [data-location-suggestions] {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+  display: none;
+}
+
+[data-location-wrapper] [data-location-suggestions][hidden] {
+  display: none !important;
+}
+
+[data-location-wrapper] [data-location-suggestions] .bo-cp-location__item {
+  margin: 0;
+  padding: 0;
+}
+
+[data-location-wrapper] [data-location-suggestions] .bo-cp-location__suggestion {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 0.92rem;
+  color: #1f2937;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+[data-location-wrapper] [data-location-suggestions] .bo-cp-location__suggestion:hover,
+[data-location-wrapper] [data-location-suggestions] .bo-cp-location__suggestion:focus,
+[data-location-wrapper] [data-location-suggestions] .bo-cp-location__suggestion.is-active {
+  outline: none;
+  background: rgba(79, 70, 229, 0.12);
+}
+
+.bo-cp-form .input-group {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.bo-cp-form .input-group > * {
+  min-height: 48px;
+}
+
+.bo-cp-form .input-group input[type="date"],
+.bo-cp-form .input-group input[type="text"],
+.bo-cp-form .input-group select {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--bo-cp-input-border);
+  border-radius: var(--bo-cp-input-radius);
+  padding: 12px 16px;
+  background: var(--bo-cp-input-bg);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+.bo-cp-form .input-group input[type="date"]:focus,
+.bo-cp-form .input-group input[type="text"]:focus,
+.bo-cp-form .input-group select:focus {
+  outline: none;
+  border-color: rgba(79, 70, 229, 0.6);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.16);
+  background: var(--bo-cp-input-bg-alt);
+}
+
+@media (max-width: 600px) {
+  [data-location-wrapper] {
+    gap: 10px;
+  }
+
+  [data-location-wrapper] [data-location-clear],
+  [data-date-toggle] {
+    width: 100%;
+    justify-content: center;
+  }
+}
