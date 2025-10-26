@@ -9,6 +9,13 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+// Avoid triggering plugin hooks on the login screen where any accidental output
+// could interfere with the authentication cookies being sent.
+global $pagenow;
+if ( isset($pagenow) && $pagenow === 'wp-login.php' ) {
+    return;
+}
+
 // Constants (read-only from wp-config.php)
 if ( ! defined('GMP_SERVER_PLACES_API_KEY') ) {
     // You should define GMP_SERVER_PLACES_API_KEY in wp-config.php
