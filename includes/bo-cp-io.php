@@ -246,32 +246,23 @@ function bo_cp_write_persona_dataset(string $key, array $locales, ?int $expected
 }
 
 /**
- * Expand a section map so both legacy and canonical keys resolve to the same data.
+ * Ensure section arrays expose sanitized aliases for backwards compatibility.
  */
-function bo_cp_normalize_section_map(array $sections): array {
-    $normalized = [];
+function bo_cp_sections_with_aliases(array $sections): array {
+    $aliases = $sections;
 
     foreach ($sections as $rawKey => $row) {
         if (!is_string($rawKey) || $rawKey === '') {
             continue;
         }
 
-        $title   = isset($row['title']) ? (string) $row['title'] : '';
-        $content = isset($row['content']) ? (string) $row['content'] : '';
-
-        $normalized[$rawKey] = ['title' => $title, 'content' => $content];
-
-        $canonKey = ($rawKey === 'overview') ? 'overview' : bo_cp_canon_key($rawKey);
-        if ($canonKey !== '' && $canonKey !== $rawKey && !isset($normalized[$canonKey])) {
-            $normalized[$canonKey] = ['title' => $title, 'content' => $content];
+        $alias = sanitize_key($rawKey);
+        if ($alias !== '' && $alias !== $rawKey && !array_key_exists($alias, $aliases)) {
+            $aliases[$alias] = $row;
         }
     }
 
-    if (!isset($normalized['overview'])) {
-        $normalized['overview'] = ['title' => '', 'content' => ''];
-    }
-
-    return $normalized;
+    return $aliases;
 }
 
 /** Load sections for persona+lang with transient caching; fallback to CPT if file missing */
@@ -292,7 +283,7 @@ function bo_cp_load_sections(string $key, string $lang): array {
         if (!is_array($sections)) {
             $sections = [];
         }
-        $sections = bo_cp_normalize_section_map($sections);
+        $sections = bo_cp_sections_with_aliases($sections);
         set_transient($cache_key, ['_mtime'=>$mtime, 'sections'=>$sections], HOUR_IN_SECONDS);
         return $sections;
     }
@@ -320,7 +311,11 @@ function bo_cp_load_sections(string $key, string $lang): array {
             }
         }
     }
-    return bo_cp_normalize_section_map($sections);
+    if (!isset($sections['overview'])) {
+        $sections['overview'] = ['title' => '', 'content' => ''];
+    }
+
+    return bo_cp_sections_with_aliases($sections);
 }
 
 /** Build ETag/Last-Modified */
