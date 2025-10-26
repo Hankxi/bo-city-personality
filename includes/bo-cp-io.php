@@ -250,6 +250,45 @@ function bo_cp_load_sections(string $key, string $lang): array {
     $key  = bo_cp_canon_key($key);
     $lang = preg_match('/^[a-z_\\-]{2,10}$/i', $lang) ? $lang : 'en';
 
+    $normalize_sections = static function ($source): array {
+        $normalized = [];
+        if (!is_array($source)) {
+            return $normalized;
+        }
+        foreach ($source as $secKey => $row) {
+            $canon = ($secKey === 'overview') ? 'overview' : bo_cp_canon_key((string) $secKey);
+            if ($canon === '') {
+                continue;
+            }
+
+            $title = '';
+            $content = '';
+            if (is_array($row)) {
+                if (isset($row['title'])) {
+                    $title = (string) $row['title'];
+                }
+                if (isset($row['content'])) {
+                    $content = (string) $row['content'];
+                } elseif (isset($row['content_html'])) {
+                    $content = (string) $row['content_html'];
+                }
+            } elseif (is_string($row)) {
+                $content = $row;
+            }
+
+            $normalized[$canon] = [
+                'title'   => $title,
+                'content' => $content,
+            ];
+        }
+
+        if (!isset($normalized['overview'])) {
+            $normalized['overview'] = ['title' => '', 'content' => ''];
+        }
+
+        return $normalized;
+    };
+
     $file = bo_cp_persona_file_path($key);
     if ( file_exists($file) ) {
         $cache_key = "bo_cp_sections_{$key}_{$lang}";
@@ -259,8 +298,8 @@ function bo_cp_load_sections(string $key, string $lang): array {
             return $cached['sections'];
         }
         $data = include $file;
-        $sections = $data['locales'][$lang]['sections'] ?? [];
-        if (!is_array($sections)) $sections = [];
+        $raw_sections = $data['locales'][$lang]['sections'] ?? [];
+        $sections = $normalize_sections($raw_sections);
         set_transient($cache_key, ['_mtime'=>$mtime, 'sections'=>$sections], HOUR_IN_SECONDS);
         return $sections;
     }
@@ -276,21 +315,15 @@ function bo_cp_load_sections(string $key, string $lang): array {
     }
     if ($post_id) {
         $locales = get_post_meta($post_id, 'locales', true);
-        if (isset($locales[$lang]['sections']) && is_array($locales[$lang]['sections'])) {
-            foreach ($locales[$lang]['sections'] as $secKey => $row) {
-                $canonKey = ($secKey === 'overview') ? 'overview' : bo_cp_canon_key((string)$secKey);
-                if ($canonKey === '') {
-                    continue;
-                }
-                $title = isset($row['title']) ? (string)$row['title'] : '';
-                $content = isset($row['content']) ? (string)$row['content'] : '';
-                $sections[$canonKey] = ['title' => $title, 'content' => $content];
-            }
+        if (isset($locales[$lang]['sections'])) {
+            $sections = $normalize_sections($locales[$lang]['sections']);
         }
     }
-    if (!isset($sections['overview'])) {
-        $sections['overview'] = ['title' => '', 'content' => ''];
+
+    if (!$sections) {
+        $sections = $normalize_sections([]);
     }
+
     return $sections;
 }
 
