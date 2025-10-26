@@ -124,19 +124,52 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
             }
         }
     } else {
+        $details_lang = $lang ?: 'en';
+        if ($details_lang !== 'en') {
+            $details_lang = 'en';
+        }
+
         $details = bo_cp_google_places_request('details', [
             'place_id' => $place_id,
-            'language' => $lang,
+            'language' => $details_lang,
             'fields'   => 'geometry,address_component,name,formatted_address,place_id',
-        ], 'details_' . $lang . '_' . $place_id);
+        ], 'details_' . $details_lang . '_' . $place_id);
         if (is_wp_error($details)) {
             return $details;
         }
-        if (($details['status'] ?? '') === 'OK' && !empty($details['result']['geometry']['location'])) {
+
+        $details_status = (string) ($details['status'] ?? '');
+        $details_error  = (string) ($details['error_message'] ?? '');
+        if ($details_status === 'OK' && !empty($details['result']['geometry']['location'])) {
             $result = $details['result'];
             $components = $result['address_components'] ?? [];
         } else {
-            return new WP_Error('place_not_found', 'Place details lookup failed.', ['status' => 404]);
+            $geo = bo_cp_google_geocode_request([
+                'place_id' => $place_id,
+                'language' => $details_lang,
+            ], 'geo_place_' . $details_lang . '_' . $place_id);
+            if (is_wp_error($geo)) {
+                return $geo;
+            }
+            if (($geo['status'] ?? '') === 'OK' && !empty($geo['results'][0]['geometry']['location'])) {
+                $result = $geo['results'][0];
+                $components = $result['address_components'] ?? [];
+                $used_geocode = true;
+                $place_id = $result['place_id'] ?? $place_id;
+            } else {
+                $error_meta = [
+                    'status'         => 404,
+                    'details_status' => $details_status,
+                    'geocode_status' => (string) ($geo['status'] ?? ''),
+                ];
+                if ($details_error !== '') {
+                    $error_meta['details_error'] = $details_error;
+                }
+                if (!empty($geo['error_message'])) {
+                    $error_meta['geocode_error'] = (string) $geo['error_message'];
+                }
+                return new WP_Error('place_not_found', 'Place details lookup failed.', $error_meta);
+            }
         }
     }
 
