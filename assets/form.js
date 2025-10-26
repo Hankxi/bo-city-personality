@@ -1172,7 +1172,7 @@
 
     // show persona + overview
     $('#bo-cp-result').style.display = 'block';
-    const displayTitle = data.display_title || data.name || data.persona_key || '';
+    const displayTitle = data.display_title || data.displayTitle || data.name || data.persona_key || '';
     $('#bo-cp-name').textContent = displayTitle;
     $('#bo-cp-overview').innerHTML = data.overview_html || '<p>(No overview)</p>';
 
