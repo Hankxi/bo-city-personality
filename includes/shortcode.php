@@ -131,8 +131,8 @@ class BO_CP_Shortcodes {
               </select>
             </div>
             <div class="row">
-              <label for="bo-cp-name"><?php echo esc_html($name_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
-              <input type="text" id="bo-cp-name" name="person_name" placeholder="<?php echo esc_attr($name_placeholder); ?>">
+              <label for="bo-cp-person-name"><?php echo esc_html($name_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
+              <input type="text" id="bo-cp-person-name" name="person_name" placeholder="<?php echo esc_attr($name_placeholder); ?>">
             </div>
             <div class="row">
               <label for="bo-cp-gender"><?php echo esc_html($gender_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
@@ -152,7 +152,7 @@ class BO_CP_Shortcodes {
           </form>
 
           <div id="bo-cp-result" style="display:none;">
-            <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-name"></span></div>
+            <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-persona-name"></span></div>
             <div id="bo-cp-overview"></div>
           </div>
         </div>
