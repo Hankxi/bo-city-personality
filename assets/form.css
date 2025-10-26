@@ -23,6 +23,125 @@
   gap: 8px;
 }
 
+.bo-cp-location {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bo-cp-location__input {
+  padding-right: 48px;
+}
+
+.bo-cp-location__clear {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.bo-cp-location__clear:hover,
+.bo-cp-location__clear:focus {
+  color: #111827;
+  background-color: rgba(107, 114, 128, 0.1);
+  outline: none;
+}
+
+.bo-cp-location__status {
+  font-size: 0.85rem;
+  color: #6b7280;
+  min-height: 1em;
+}
+
+.bo-cp-location__status[data-state="loading"] {
+  color: #4338ca;
+}
+
+.bo-cp-location__status[data-state="error"] {
+  color: #dc2626;
+}
+
+.bo-cp-location__status[data-state="empty"] {
+  color: #6b7280;
+}
+
+.bo-cp-location__suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 6px;
+  list-style: none;
+  padding: 6px 0;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background-color: #ffffff;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 30;
+}
+
+.bo-cp-location__item {
+  margin: 0;
+  padding: 0;
+}
+
+.bo-cp-location__suggestion {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  color: #1f2937;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.bo-cp-location__suggestion:hover,
+.bo-cp-location__suggestion.is-active,
+.bo-cp-location__suggestion:focus {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #111827;
+  outline: none;
+}
+
+.bo-cp-date {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.bo-cp-date__toggle {
+  padding: 10px 16px;
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #4338ca;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.bo-cp-date__toggle:hover,
+.bo-cp-date__toggle:focus {
+  background-color: rgba(99, 102, 241, 0.2);
+  color: #312e81;
+  outline: none;
+}
+
 .bo-cp-form label {
   font-size: 0.95rem;
   font-weight: 600;
@@ -134,6 +253,16 @@
 
   .bo-cp-form {
     gap: 16px;
+  }
+
+  .bo-cp-date {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bo-cp-date__toggle {
+    width: 100%;
+    text-align: center;
   }
 
   .bo-cp-form button[type="submit"] {

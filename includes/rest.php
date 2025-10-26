@@ -543,6 +543,40 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
     ];
 }
 
+function bo_cp_rest_place_details(WP_REST_Request $req) {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    if (bo_cp_rate_limited('place_details_' . $ip, 60, 60)) {
+        return new WP_Error('rate_limited', 'Too many requests.', ['status' => 429]);
+    }
+
+    $place_id = sanitize_text_field($req->get_param('place_id'));
+    if ($place_id === '') {
+        return new WP_Error('bad_request', 'place_id is required.', ['status' => 400]);
+    }
+
+    $lang = bo_cp_preferred_lang($req->get_param('lang'), 'en');
+    if ($lang === '') {
+        $lang = 'en';
+    }
+
+    $place = bo_cp_lookup_place('', '', $place_id, 'en');
+    if (is_wp_error($place)) {
+        return $place;
+    }
+
+    return [
+        'place_id'          => $place['place_id'],
+        'city'              => $place['city'],
+        'country'           => $place['country'],
+        'country_code'      => $place['country_code'] ?? '',
+        'formatted_address' => $place['formatted_address'],
+        'name'              => $place['name'],
+        'lat'               => $place['lat'],
+        'lng'               => $place['lng'],
+        'lang'              => $lang,
+    ];
+}
+
 function bo_cp_rest_geo_callback(WP_REST_Request $req) {
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     if (bo_cp_rate_limited('geo_' . $ip, 30, 60)) {
@@ -779,6 +813,16 @@ add_action('rest_api_init', function(){
             'input'   => ['required' => true],
             'country' => ['required' => false],
             'lang'    => ['required' => false],
+        ],
+    ]);
+
+    register_rest_route('bo/v1', '/place-details', [
+        'methods'  => 'GET',
+        'callback' => 'bo_cp_rest_place_details',
+        'permission_callback' => '__return_true',
+        'args' => [
+            'place_id' => ['required' => true],
+            'lang'     => ['required' => false],
         ],
     ]);
 

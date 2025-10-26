@@ -187,6 +187,344 @@
     });
   };
 
+  const placeDetailsCache = new Map();
+
+  const initBirthDateToggle = () => {
+    const form = document.querySelector('#bo-cp-form');
+    if (!form) return;
+    const input = form.querySelector('[data-date-input]');
+    const toggle = form.querySelector('[data-date-toggle]');
+    if (!input || !toggle) return;
+
+    const manualLabel = toggle.dataset.manualLabel || 'Manual Entry';
+    const pickerLabel = toggle.dataset.pickerLabel || 'Use Date Picker';
+    let manualMode = false;
+
+    toggle.addEventListener('click', (event) => {
+      event.preventDefault();
+      manualMode = !manualMode;
+      if (manualMode) {
+        input.setAttribute('type', 'text');
+        if (!input.placeholder) {
+          input.setAttribute('data-original-placeholder', input.getAttribute('placeholder') || '');
+        }
+        input.placeholder = 'YYYY-MM-DD';
+        toggle.textContent = pickerLabel;
+      } else {
+        input.setAttribute('type', 'date');
+        const original = input.getAttribute('data-original-placeholder') || '';
+        if (original) {
+          input.placeholder = original;
+        } else {
+          input.removeAttribute('placeholder');
+        }
+        if (!input.value) {
+          input.value = '2000-01-01';
+        }
+        toggle.textContent = manualLabel;
+      }
+      input.focus();
+    });
+  };
+
+  const fetchPlaceDetails = async (placeId) => {
+    if (!placeId) return null;
+    if (placeDetailsCache.has(placeId)) {
+      return placeDetailsCache.get(placeId);
+    }
+    const params = new URLSearchParams({ place_id: placeId, lang: 'en' });
+    try {
+      const res = await fetch(`/wp-json/bo/v1/place-details?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const payload = await res.json();
+      placeDetailsCache.set(placeId, payload);
+      return payload;
+    } catch (err) {
+      console.error('Failed to fetch place details', err);
+      return null;
+    }
+  };
+
+  const initLocationPicker = () => {
+    const form = document.querySelector('#bo-cp-form');
+    if (!form) return;
+    const wrapper = form.querySelector('[data-location-wrapper]');
+    if (!wrapper) return;
+    const input = wrapper.querySelector('[data-location-input]');
+    const suggestionsEl = wrapper.querySelector('[data-location-suggestions]');
+    const statusEl = wrapper.querySelector('[data-location-status]');
+    const clearBtn = wrapper.querySelector('[data-location-clear]');
+    const cityField = form.querySelector('input[name="city"]');
+    const countryField = form.querySelector('input[name="country"]');
+    const placeField = form.querySelector('input[name="place_id"]');
+    if (!input || !suggestionsEl || !statusEl || !cityField || !countryField || !placeField) {
+      return;
+    }
+
+    let debounceTimer = null;
+    let requestToken = 0;
+    let currentSuggestions = [];
+    let activeIndex = -1;
+    let lastQuery = '';
+
+    const setStatus = (message = '', state = '') => {
+      if (!statusEl) return;
+      if (message) {
+        statusEl.textContent = message;
+        statusEl.hidden = false;
+        if (state) {
+          statusEl.dataset.state = state;
+        } else {
+          delete statusEl.dataset.state;
+        }
+      } else {
+        statusEl.textContent = '';
+        statusEl.hidden = true;
+        delete statusEl.dataset.state;
+      }
+    };
+
+    const hideSuggestions = () => {
+      suggestionsEl.innerHTML = '';
+      suggestionsEl.hidden = true;
+      activeIndex = -1;
+      input.setAttribute('aria-expanded', 'false');
+    };
+
+    const resetHiddenFields = () => {
+      cityField.value = '';
+      countryField.value = '';
+      placeField.value = '';
+    };
+
+    const renderSuggestions = (items) => {
+      suggestionsEl.innerHTML = '';
+      items.forEach((item, index) => {
+        const li = document.createElement('li');
+        li.className = 'bo-cp-location__item';
+        li.setAttribute('role', 'presentation');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'bo-cp-location__suggestion';
+        btn.dataset.index = String(index);
+        btn.dataset.placeId = item.place_id || '';
+        btn.setAttribute('role', 'option');
+        const optionId = `${suggestionsEl.id || 'bo-cp-location-option'}-${index}`;
+        btn.id = optionId;
+        btn.textContent = item.description || '';
+        li.appendChild(btn);
+        suggestionsEl.appendChild(li);
+      });
+      if (items.length) {
+        suggestionsEl.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+        setActiveIndex(-1);
+      } else {
+        hideSuggestions();
+      }
+    };
+
+    const setActiveIndex = (index) => {
+      activeIndex = index;
+      const buttons = suggestionsEl.querySelectorAll('.bo-cp-location__suggestion');
+      let activeId = '';
+      buttons.forEach((btn, idx) => {
+        if (idx === index) {
+          btn.classList.add('is-active');
+          activeId = btn.id || '';
+        } else {
+          btn.classList.remove('is-active');
+        }
+      });
+      if (activeId) {
+        input.setAttribute('aria-activedescendant', activeId);
+      } else {
+        input.removeAttribute('aria-activedescendant');
+      }
+    };
+
+    const applySuggestion = async (item) => {
+      if (!item) return;
+      hideSuggestions();
+      input.value = item.description || '';
+      if (clearBtn) {
+        clearBtn.hidden = input.value.trim() === '';
+      }
+      placeField.value = item.place_id || '';
+      let resolvedCity = '';
+      let resolvedCountry = '';
+
+      if (item.place_id) {
+        const details = await fetchPlaceDetails(item.place_id);
+        if (details) {
+          resolvedCity = (details.city || '').toString();
+          resolvedCountry = (details.country || '').toString();
+          if (details.place_id) {
+            placeField.value = details.place_id;
+          }
+        }
+      }
+
+      if ((!resolvedCity || !resolvedCountry) && Array.isArray(item.terms)) {
+        if (!resolvedCity && item.terms[0] && item.terms[0].value) {
+          resolvedCity = item.terms[0].value;
+        }
+        const lastTerm = item.terms[item.terms.length - 1];
+        if (!resolvedCountry && lastTerm && lastTerm.value) {
+          resolvedCountry = lastTerm.value;
+        }
+      }
+
+      cityField.value = resolvedCity || '';
+      countryField.value = resolvedCountry || '';
+
+      if (!resolvedCity || !resolvedCountry) {
+        setStatus(input.dataset.errorSelect || '', 'error');
+      } else {
+        setStatus('');
+      }
+    };
+
+    const fetchSuggestions = async (query) => {
+      const trimmed = query.trim();
+      if (!trimmed || trimmed.length < 2) {
+        hideSuggestions();
+        setStatus('');
+        return;
+      }
+      if (trimmed === lastQuery && currentSuggestions.length) {
+        renderSuggestions(currentSuggestions);
+        return;
+      }
+
+      lastQuery = trimmed;
+      const currentToken = ++requestToken;
+      setStatus(input.dataset.loadingLabel || '', 'loading');
+      hideSuggestions();
+
+      try {
+        const params = new URLSearchParams({
+          input: trimmed,
+          lang: detectLang(),
+        });
+        const res = await fetch(`/wp-json/bo/v1/places?${params.toString()}`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const payload = await res.json();
+        if (currentToken !== requestToken) {
+          return;
+        }
+        currentSuggestions = Array.isArray(payload.predictions) ? payload.predictions : [];
+        if (!currentSuggestions.length) {
+          hideSuggestions();
+          setStatus(input.dataset.noResults || '', 'empty');
+          return;
+        }
+        renderSuggestions(currentSuggestions);
+        setStatus('');
+      } catch (err) {
+        console.error('Failed to fetch suggestions', err);
+        if (currentToken === requestToken) {
+          hideSuggestions();
+          setStatus(input.dataset.fetchError || '', 'error');
+        }
+      }
+    };
+
+    input.addEventListener('input', () => {
+      resetHiddenFields();
+      if (clearBtn) {
+        clearBtn.hidden = input.value.trim() === '';
+      }
+      setStatus('');
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+      const value = input.value;
+      debounceTimer = setTimeout(() => {
+        fetchSuggestions(value);
+      }, 250);
+    });
+
+    input.addEventListener('focus', () => {
+      if (currentSuggestions.length) {
+        renderSuggestions(currentSuggestions);
+      }
+    });
+
+    input.addEventListener('keydown', (event) => {
+      if (suggestionsEl.hidden) {
+        if (event.key === 'Enter') {
+          const message = input.dataset.errorSelect || '';
+          if (message && (!cityField.value || !countryField.value)) {
+            event.preventDefault();
+            setStatus(message, 'error');
+          }
+        }
+        return;
+      }
+      const maxIndex = currentSuggestions.length - 1;
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        const next = activeIndex >= maxIndex ? 0 : activeIndex + 1;
+        setActiveIndex(next);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        const next = activeIndex <= 0 ? maxIndex : activeIndex - 1;
+        setActiveIndex(next);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (activeIndex >= 0 && currentSuggestions[activeIndex]) {
+          applySuggestion(currentSuggestions[activeIndex]);
+        }
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        hideSuggestions();
+      }
+    });
+
+    suggestionsEl.addEventListener('mousedown', (event) => {
+      const button = event.target.closest('.bo-cp-location__suggestion');
+      if (button) {
+        event.preventDefault();
+      }
+    });
+
+    suggestionsEl.addEventListener('click', (event) => {
+      const button = event.target.closest('.bo-cp-location__suggestion');
+      if (!button) return;
+      event.preventDefault();
+      const index = parseInt(button.dataset.index || '-1', 10);
+      if (index >= 0 && currentSuggestions[index]) {
+        applySuggestion(currentSuggestions[index]);
+      }
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        input.value = '';
+        resetHiddenFields();
+        hideSuggestions();
+        clearBtn.hidden = true;
+        setStatus('');
+        input.focus();
+      });
+    }
+
+    document.addEventListener('click', (event) => {
+      if (!wrapper.contains(event.target)) {
+        hideSuggestions();
+      }
+    });
+  };
+
+  initBirthDateToggle();
+  initLocationPicker();
+
   document.addEventListener('submit', async (e)=>{
     const form = e.target;
     if (form.id !== 'bo-cp-form') return;
@@ -198,6 +536,17 @@
     const hidden = form.querySelector('input[name="lang"]');
     if (hidden) {
       hidden.value = lang;
+    }
+    const city = (formData.get('city') || '').toString().trim();
+    const country = (formData.get('country') || '').toString().trim();
+    if (!city || !country) {
+      const locationInput = form.querySelector('[data-location-input]');
+      const message = locationInput ? (locationInput.dataset.errorSelect || 'Please select a city from the suggestions.') : 'Please select a city from the suggestions.';
+      alert(message);
+      if (locationInput) {
+        locationInput.focus();
+      }
+      return;
     }
     const qs = new URLSearchParams(formData);
     const url = `/wp-json/bo/v1/geo?` + qs.toString();
