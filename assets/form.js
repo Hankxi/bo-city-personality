@@ -521,6 +521,36 @@
       placeField.value = '';
     };
 
+    const dedupeSuggestions = (items, limit = 8) => {
+      const seen = new Set();
+      const out = [];
+      items.forEach((item) => {
+        if (!item || typeof item !== 'object') {
+          return;
+        }
+        const description = (item.description || '').toString().trim();
+        if (!description) {
+          return;
+        }
+        const placeId = (item.place_id || '').toString();
+        const key = `${placeId}|${description.toLowerCase()}`;
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        out.push({
+          place_id: placeId,
+          description,
+          matched_substrings: Array.isArray(item.matched_substrings) ? item.matched_substrings : [],
+          terms: Array.isArray(item.terms) ? item.terms : [],
+        });
+      });
+      if (typeof limit === 'number' && limit > 0) {
+        return out.slice(0, limit);
+      }
+      return out;
+    };
+
     const renderSuggestions = (items) => {
       suggestionsEl.innerHTML = '';
       items.forEach((item, index) => {
@@ -635,10 +665,11 @@
     };
 
     const fetchSuggestions = async (query) => {
-      const trimmed = query.trim();
+      const trimmed = (query || '').toString().trim();
       if (!trimmed || trimmed.length < 2) {
         hideSuggestions();
         setStatus('');
+        lastQuery = '';
         return;
       }
       if (trimmed === lastQuery && currentSuggestions.length) {
@@ -653,78 +684,99 @@
 
       let serverError = null;
       let serverResults = [];
-      let googleResults = [];
+      let googleTimeoutId = null;
 
-      const serverTask = (async () => {
-        try {
-          const params = new URLSearchParams({
-            input: trimmed,
-            lang: detectLang(),
-          });
-          const res = await fetchWithTimeout(`${restUrl('places')}?${params.toString()}`, {
-            credentials: 'same-origin'
-          }, 5000);
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-          const payload = await res.json();
-          if (Array.isArray(payload.predictions)) {
-            serverResults = payload.predictions;
-          }
-        } catch (err) {
-          serverError = err;
-          console.error('Failed to fetch suggestions', err);
-        }
-      })();
-
-      const googleTask = (async () => {
-        if (!settings.placesKey) {
+      const finalizeEmptyState = () => {
+        if (currentToken !== requestToken || currentSuggestions.length) {
           return;
         }
-        try {
-          googleResults = await fetchSuggestionsViaGoogle(trimmed);
-        } catch (err) {
-          console.error('Google suggestion fallback failed', err);
-        }
-      })();
-
-      await Promise.all([serverTask, googleTask]);
-
-      if (currentToken !== requestToken) {
-        return;
-      }
-
-      const combined = [];
-      const seen = new Set();
-
-      const addItems = (items) => {
-        items.forEach((item) => {
-          if (!item) return;
-          const key = (item.place_id || '') + '|' + (item.description || '');
-          if (seen.has(key)) {
-            return;
-          }
-          seen.add(key);
-          combined.push(item);
-        });
-      };
-
-      addItems(serverResults);
-      addItems(googleResults);
-
-      currentSuggestions = combined;
-      if (!currentSuggestions.length) {
         hideSuggestions();
         if (serverError) {
           setStatus(input.dataset.fetchError || '', 'error');
         } else {
           setStatus(input.dataset.noResults || '', 'empty');
         }
+      };
+
+      if (settings.placesKey) {
+        googleTimeoutId = setTimeout(() => {
+          finalizeEmptyState();
+        }, 4000);
+      }
+
+      try {
+        const params = new URLSearchParams({
+          input: trimmed,
+          lang: detectLang(),
+        });
+        const res = await fetchWithTimeout(`${restUrl('places')}?${params.toString()}`, {
+          credentials: 'same-origin'
+        }, 5000);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const payload = await res.json();
+        if (Array.isArray(payload.predictions)) {
+          serverResults = payload.predictions;
+        }
+      } catch (err) {
+        serverError = err;
+        console.error('Failed to fetch suggestions', err);
+      }
+
+      if (currentToken !== requestToken) {
+        if (googleTimeoutId) {
+          clearTimeout(googleTimeoutId);
+        }
         return;
       }
 
-      renderSuggestions(currentSuggestions);
-      setStatus('');
+      currentSuggestions = dedupeSuggestions(serverResults);
+      if (currentSuggestions.length) {
+        renderSuggestions(currentSuggestions);
+        setStatus('');
+        if (googleTimeoutId) {
+          clearTimeout(googleTimeoutId);
+          googleTimeoutId = null;
+        }
+      } else if (!settings.placesKey) {
+        finalizeEmptyState();
+      }
+
+      if (settings.placesKey) {
+        fetchSuggestionsViaGoogle(trimmed).then((googleResults) => {
+          if (googleTimeoutId) {
+            clearTimeout(googleTimeoutId);
+            googleTimeoutId = null;
+          }
+          if (currentToken !== requestToken) {
+            return;
+          }
+          if (!Array.isArray(googleResults) || !googleResults.length) {
+            finalizeEmptyState();
+            return;
+          }
+          const combined = dedupeSuggestions(currentSuggestions.concat(googleResults));
+          currentSuggestions = combined;
+          if (combined.length) {
+            renderSuggestions(combined);
+            setStatus('');
+          } else {
+            finalizeEmptyState();
+          }
+        }).catch((err) => {
+          if (googleTimeoutId) {
+            clearTimeout(googleTimeoutId);
+            googleTimeoutId = null;
+          }
+          console.error('Google suggestion fallback failed', err);
+          finalizeEmptyState();
+        });
+      }
+
+      if (!currentSuggestions.length && !settings.placesKey) {
+        finalizeEmptyState();
+      }
     };
 
     input.addEventListener('input', () => {
