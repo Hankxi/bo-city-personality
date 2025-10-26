@@ -12,8 +12,8 @@ class BO_CP_Shortcodes {
     }
 
     public static function assets() {
-        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.1.0', true);
-        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.1.0');
+        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.0.3', true);
+        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.0.0');
     }
 
     public static function expand_section_shortcodes($content) {
@@ -40,119 +40,45 @@ class BO_CP_Shortcodes {
         wp_enqueue_script('bo-cp-form');
         wp_enqueue_style('bo-cp-form');
         $active_lang = bo_cp_preferred_lang('', 'en');
-        $script_data = [
-            'restRoot' => esc_url_raw(rest_url('bo/v1/')),
-            'lang'     => strtolower(bo_cp_preferred_lang($active_lang, 'en')),
-            'placesKey'=> bo_cp_google_api_key('places'),
-        ];
-        $script_data['debug'] = (bool) apply_filters('bo_cp_form_debug', defined('WP_DEBUG') && WP_DEBUG);
-        wp_localize_script('bo-cp-form', 'boCPData', $script_data);
-        $lang_key = strtolower(bo_cp_preferred_lang($active_lang, 'en'));
-        $is_chinese = strpos($lang_key, 'zh') === 0;
-
-        $location_label = $is_chinese ? '城市 / 地点' : __('City or Place', 'bo-city-personality');
-        $location_placeholder = $is_chinese ? '请输入城市或地点' : __('Start typing a city or place', 'bo-city-personality');
-        $location_clear_label = $is_chinese ? '清除' : __('Clear', 'bo-city-personality');
-        $location_error = $is_chinese ? '请选择列表中的城市或地点。' : __('Please select a city from the suggestions.', 'bo-city-personality');
-        $location_loading = $is_chinese ? '正在搜索…' : __('Searching…', 'bo-city-personality');
-        $location_no_results = $is_chinese ? '未找到匹配的地点。' : __('No matching places found.', 'bo-city-personality');
-        $location_fetch_error = $is_chinese ? '无法获取推荐，请稍后重试。' : __('Unable to load suggestions. Please try again.', 'bo-city-personality');
-
-        $optional_label = $is_chinese ? '选填' : __('Optional', 'bo-city-personality');
-
-        $manual_entry_label = $is_chinese ? '手动输入' : __('Manual Entry', 'bo-city-personality');
-        $manual_picker_label = $is_chinese ? '使用日期选择' : __('Use Date Picker', 'bo-city-personality');
-
-        $hour_slot_label = $is_chinese ? '时辰' : __('Hour Slot', 'bo-city-personality');
-        $hour_slots = [
-            '23-01' => $is_chinese ? '23:00-01:00（子时）' : __('23:00-01:00 (Zi Hour)', 'bo-city-personality'),
-            '01-03' => $is_chinese ? '01:00-03:00（丑时）' : __('01:00-03:00 (Chou Hour)', 'bo-city-personality'),
-            '03-05' => $is_chinese ? '03:00-05:00（寅时）' : __('03:00-05:00 (Yin Hour)', 'bo-city-personality'),
-            '05-07' => $is_chinese ? '05:00-07:00（卯时）' : __('05:00-07:00 (Mao Hour)', 'bo-city-personality'),
-            '07-09' => $is_chinese ? '07:00-09:00（辰时）' : __('07:00-09:00 (Chen Hour)', 'bo-city-personality'),
-            '09-11' => $is_chinese ? '09:00-11:00（巳时）' : __('09:00-11:00 (Si Hour)', 'bo-city-personality'),
-            '11-13' => $is_chinese ? '11:00-13:00（午时）' : __('11:00-13:00 (Wu Hour)', 'bo-city-personality'),
-            '13-15' => $is_chinese ? '13:00-15:00（未时）' : __('13:00-15:00 (Wei Hour)', 'bo-city-personality'),
-            '15-17' => $is_chinese ? '15:00-17:00（申时）' : __('15:00-17:00 (Shen Hour)', 'bo-city-personality'),
-            '17-19' => $is_chinese ? '17:00-19:00（酉时）' : __('17:00-19:00 (You Hour)', 'bo-city-personality'),
-            '19-21' => $is_chinese ? '19:00-21:00（戌时）' : __('19:00-21:00 (Xu Hour)', 'bo-city-personality'),
-            '21-23' => $is_chinese ? '21:00-23:00（亥时）' : __('21:00-23:00 (Hai Hour)', 'bo-city-personality'),
-        ];
-
-        $gender_label = $is_chinese ? '性别' : __('Gender', 'bo-city-personality');
-        $gender_options = [
-            ['value' => 'prefer_not', 'label' => $is_chinese ? '不便透露' : __('Prefer not to say', 'bo-city-personality')],
-            ['value' => 'female', 'label' => $is_chinese ? '女' : __('Female', 'bo-city-personality')],
-            ['value' => 'male', 'label' => $is_chinese ? '男' : __('Male', 'bo-city-personality')],
-        ];
-
-        $name_label = $is_chinese ? '姓名' : __('Name', 'bo-city-personality');
-        $name_placeholder = $is_chinese ? '您的名字' : __('Your name', 'bo-city-personality');
-        $email_label = $is_chinese ? '邮箱' : __('Email', 'bo-city-personality');
-        $email_placeholder = $is_chinese ? 'you@example.com' : 'you@example.com';
-
-        $submit_label = $is_chinese ? '生成城市性格' : __('Compute Persona', 'bo-city-personality');
-        if (function_exists('wp_unique_id')) {
-            $location_list_id = wp_unique_id('bo-cp-location-list-');
-        } else {
-            $location_list_id = 'bo-cp-location-list-' . uniqid();
-        }
-
         ob_start(); ?>
         <div class="bo-cp-widget">
-          <form id="bo-cp-form" class="bo-cp-form">
+          <form id="bo-cp-form">
             <input type="hidden" name="lang" value="<?php echo esc_attr($active_lang); ?>">
             <div class="row">
-              <label for="bo-cp-location"><?php echo esc_html($location_label); ?></label>
-              <div class="bo-cp-location" data-location-wrapper>
-                <input type="search" id="bo-cp-location" class="bo-cp-location__input" required autocomplete="off" placeholder="<?php echo esc_attr($location_placeholder); ?>" data-location-input data-error-select="<?php echo esc_attr($location_error); ?>" data-loading-label="<?php echo esc_attr($location_loading); ?>" data-no-results="<?php echo esc_attr($location_no_results); ?>" data-fetch-error="<?php echo esc_attr($location_fetch_error); ?>" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="<?php echo esc_attr($location_list_id); ?>">
-                <input type="hidden" name="city" value="">
-                <input type="hidden" name="country" value="">
-                <input type="hidden" name="place_id" value="">
-                <div class="bo-cp-location__status" data-location-status hidden></div>
-                <ul class="bo-cp-location__suggestions" data-location-suggestions hidden role="listbox" id="<?php echo esc_attr($location_list_id); ?>"></ul>
-                <button type="button" class="bo-cp-location__clear" data-location-clear aria-label="<?php echo esc_attr($location_clear_label); ?>" hidden><?php echo esc_html($location_clear_label); ?></button>
-              </div>
+              <label>Country</label>
+              <input type="text" name="country" required placeholder="Canada">
             </div>
             <div class="row">
-              <label for="bo-cp-birth-date"><?php esc_html_e('Birth Date', 'bo-city-personality'); ?></label>
-              <div class="bo-cp-date">
-                <input type="date" id="bo-cp-birth-date" name="birth_date" value="2000-01-01" required data-date-input>
-                <button type="button" class="bo-cp-date__toggle" data-date-toggle data-picker-label="<?php echo esc_attr($manual_picker_label); ?>" data-manual-label="<?php echo esc_attr($manual_entry_label); ?>"><?php echo esc_html($manual_entry_label); ?></button>
-              </div>
+              <label>City</label>
+              <input type="text" name="city" required placeholder="Vancouver">
             </div>
             <div class="row">
-              <label for="bo-cp-hour-slot"><?php echo esc_html($hour_slot_label); ?></label>
-              <select id="bo-cp-hour-slot" name="hour_slot">
-                <option value=""><?php echo esc_html($is_chinese ? '请选择（可选）' : __('Select (optional)', 'bo-city-personality')); ?></option>
-                <?php foreach ($hour_slots as $value => $label) : ?>
-                  <option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option>
-                <?php endforeach; ?>
-              </select>
+              <label>Birth Date</label>
+              <input type="date" name="birth_date" required>
             </div>
             <div class="row">
-              <label for="bo-cp-person-name"><?php echo esc_html($name_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
-              <input type="text" id="bo-cp-person-name" name="person_name" placeholder="<?php echo esc_attr($name_placeholder); ?>">
+              <label>Hour Slot</label>
+              <input type="text" name="hour_slot" placeholder="13-15">
             </div>
             <div class="row">
-              <label for="bo-cp-gender"><?php echo esc_html($gender_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
-              <select id="bo-cp-gender" name="gender">
-                <?php foreach ($gender_options as $option) : ?>
-                  <option value="<?php echo esc_attr($option['value']); ?>"><?php echo esc_html($option['label']); ?></option>
-                <?php endforeach; ?>
-              </select>
+              <label>Name (optional)</label>
+              <input type="text" name="person_name" placeholder="Your name">
             </div>
             <div class="row">
-              <label for="bo-cp-email"><?php echo esc_html($email_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
-              <input type="email" id="bo-cp-email" name="email" placeholder="<?php echo esc_attr($email_placeholder); ?>">
+              <label>Gender (optional)</label>
+              <input type="text" name="gender" placeholder="male / female / ...">
             </div>
-            <div class="row row--actions">
-              <button type="submit"><?php echo esc_html($submit_label); ?></button>
+            <div class="row">
+              <label>Email (optional)</label>
+              <input type="email" name="email" placeholder="you@example.com">
+            </div>
+            <div class="row">
+              <button type="submit">Compute Persona</button>
             </div>
           </form>
 
           <div id="bo-cp-result" style="display:none;">
-            <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-persona-name"></span></div>
+            <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-name"></span></div>
             <div id="bo-cp-overview"></div>
           </div>
         </div>
