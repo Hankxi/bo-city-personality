@@ -245,30 +245,6 @@ function bo_cp_write_persona_dataset(string $key, array $locales, ?int $expected
     return true;
 }
 
-/**
- * Ensure section arrays expose sanitized aliases for backwards compatibility.
- */
-function bo_cp_sections_with_aliases(array $sections): array {
-    $aliases = $sections;
-
-    foreach ($sections as $rawKey => $row) {
-        if (!is_string($rawKey) || $rawKey === '') {
-            continue;
-        }
-
-        $alias = ($rawKey === 'overview') ? 'overview' : bo_cp_canon_key($rawKey);
-        if ($alias === '' || $alias === $rawKey) {
-            continue;
-        }
-
-        if (!array_key_exists($alias, $aliases)) {
-            $aliases[$alias] = $row;
-        }
-    }
-
-    return $aliases;
-}
-
 /** Load sections for persona+lang with transient caching; fallback to CPT if file missing */
 function bo_cp_load_sections(string $key, string $lang): array {
     $key  = bo_cp_canon_key($key);
@@ -284,10 +260,7 @@ function bo_cp_load_sections(string $key, string $lang): array {
         }
         $data = include $file;
         $sections = $data['locales'][$lang]['sections'] ?? [];
-        if (!is_array($sections)) {
-            $sections = [];
-        }
-        $sections = bo_cp_sections_with_aliases($sections);
+        if (!is_array($sections)) $sections = [];
         set_transient($cache_key, ['_mtime'=>$mtime, 'sections'=>$sections], HOUR_IN_SECONDS);
         return $sections;
     }
@@ -318,8 +291,7 @@ function bo_cp_load_sections(string $key, string $lang): array {
     if (!isset($sections['overview'])) {
         $sections['overview'] = ['title' => '', 'content' => ''];
     }
-
-    return bo_cp_sections_with_aliases($sections);
+    return $sections;
 }
 
 /** Build ETag/Last-Modified */
