@@ -413,6 +413,21 @@
     });
   };
 
+  const fetchWithTimeout = async (input, init = {}, timeoutMs = 8000) => {
+    if (typeof AbortController === 'undefined') {
+      return fetch(input, init);
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+    try {
+      return await fetch(input, Object.assign({}, init, { signal: controller.signal }));
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const fetchPlaceDetails = async (placeId) => {
     if (!placeId) return null;
     if (placeDetailsCache.has(placeId)) {
@@ -420,7 +435,9 @@
     }
     const params = new URLSearchParams({ place_id: placeId, lang: 'en' });
     try {
-      const res = await fetch(`${restUrl('place-details')}?${params.toString()}`);
+      const res = await fetchWithTimeout(`${restUrl('place-details')}?${params.toString()}`, {
+        credentials: 'same-origin'
+      }, 7000);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -634,65 +651,80 @@
       setStatus(input.dataset.loadingLabel || '', 'loading');
       hideSuggestions();
 
-      try {
-        const params = new URLSearchParams({
-          input: trimmed,
-          lang: detectLang(),
-        });
-        const res = await fetch(`${restUrl('places')}?${params.toString()}`);
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
+      let serverError = null;
+      let serverResults = [];
+      let googleResults = [];
+
+      const serverTask = (async () => {
+        try {
+          const params = new URLSearchParams({
+            input: trimmed,
+            lang: detectLang(),
+          });
+          const res = await fetchWithTimeout(`${restUrl('places')}?${params.toString()}`, {
+            credentials: 'same-origin'
+          }, 5000);
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const payload = await res.json();
+          if (Array.isArray(payload.predictions)) {
+            serverResults = payload.predictions;
+          }
+        } catch (err) {
+          serverError = err;
+          console.error('Failed to fetch suggestions', err);
         }
-        const payload = await res.json();
-        if (currentToken !== requestToken) {
+      })();
+
+      const googleTask = (async () => {
+        if (!settings.placesKey) {
           return;
         }
-        const combined = Array.isArray(payload.predictions) ? payload.predictions.slice() : [];
-        if (settings.placesKey) {
-          const googleResults = await fetchSuggestionsViaGoogle(trimmed);
-          if (googleResults && googleResults.length) {
-            const seen = new Set();
-            combined.forEach((item) => {
-              const key = (item && (item.place_id || item.description)) ? `${item.place_id || ''}|${item.description || ''}` : '';
-              if (key) {
-                seen.add(key);
-              }
-            });
-            googleResults.forEach((item) => {
-              const key = (item && (item.place_id || item.description)) ? `${item.place_id || ''}|${item.description || ''}` : '';
-              if (!key || seen.has(key)) {
-                return;
-              }
-              combined.push(item);
-              seen.add(key);
-            });
-          }
+        try {
+          googleResults = await fetchSuggestionsViaGoogle(trimmed);
+        } catch (err) {
+          console.error('Google suggestion fallback failed', err);
         }
-        currentSuggestions = combined;
-        if (!currentSuggestions.length) {
-          hideSuggestions();
-          setStatus(input.dataset.noResults || '', 'empty');
-          return;
-        }
-        renderSuggestions(currentSuggestions);
-        setStatus('');
-      } catch (err) {
-        console.error('Failed to fetch suggestions', err);
-        if (currentToken === requestToken) {
-          let resolved = [];
-          if (settings.placesKey) {
-            resolved = await fetchSuggestionsViaGoogle(trimmed);
-          }
-          if (resolved.length) {
-            currentSuggestions = resolved;
-            renderSuggestions(currentSuggestions);
-            setStatus('');
-          } else {
-            hideSuggestions();
-            setStatus(input.dataset.fetchError || '', 'error');
-          }
-        }
+      })();
+
+      await Promise.all([serverTask, googleTask]);
+
+      if (currentToken !== requestToken) {
+        return;
       }
+
+      const combined = [];
+      const seen = new Set();
+
+      const addItems = (items) => {
+        items.forEach((item) => {
+          if (!item) return;
+          const key = (item.place_id || '') + '|' + (item.description || '');
+          if (seen.has(key)) {
+            return;
+          }
+          seen.add(key);
+          combined.push(item);
+        });
+      };
+
+      addItems(serverResults);
+      addItems(googleResults);
+
+      currentSuggestions = combined;
+      if (!currentSuggestions.length) {
+        hideSuggestions();
+        if (serverError) {
+          setStatus(input.dataset.fetchError || '', 'error');
+        } else {
+          setStatus(input.dataset.noResults || '', 'empty');
+        }
+        return;
+      }
+
+      renderSuggestions(currentSuggestions);
+      setStatus('');
     };
 
     input.addEventListener('input', () => {
@@ -798,8 +830,36 @@
     if (hidden) {
       hidden.value = lang;
     }
-    const city = (formData.get('city') || '').toString().trim();
-    const country = (formData.get('country') || '').toString().trim();
+    let city = (formData.get('city') || '').toString().trim();
+    let country = (formData.get('country') || '').toString().trim();
+    const placeId = (formData.get('place_id') || '').toString().trim();
+
+    if ((!city || !country) && placeId) {
+      try {
+        const details = await fetchPlaceDetails(placeId);
+        if (details) {
+          if (!city && details.city) {
+            city = details.city.toString().trim();
+            formData.set('city', city);
+            const cityInput = form.querySelector('input[name="city"]');
+            if (cityInput) {
+              cityInput.value = city;
+            }
+          }
+          if (!country && details.country) {
+            country = details.country.toString().trim();
+            formData.set('country', country);
+            const countryInput = form.querySelector('input[name="country"]');
+            if (countryInput) {
+              countryInput.value = country;
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to resolve place details before submit', err);
+      }
+    }
+
     if (!city || !country) {
       const locationInput = form.querySelector('[data-location-input]');
       const message = locationInput ? (locationInput.dataset.errorSelect || 'Please select a city from the suggestions.') : 'Please select a city from the suggestions.';
