@@ -47,6 +47,20 @@
   gap: 20px;
 }
 
+/* 约束宿主主题对 .row 的侵入式样式，保持表单内容对齐 */
+.bo-cp-form .row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.bo-cp-form .row > label {
+  align-self: flex-start;
+}
+
 /* label & badges */
 .bo-cp-form label {
   font-size: 0.95rem;
