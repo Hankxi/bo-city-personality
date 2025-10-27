@@ -23,15 +23,6 @@ function bo_cp_send_cache_headers(string $persona_key) {
         'Cache-Control' => 'max-age=300, public',
     ];
 
-    $server = function_exists('rest_get_server') ? rest_get_server() : null;
-    foreach ($headers as $name => $value) {
-        if ($server instanceof WP_REST_Server) {
-            $server->send_header($name, $value);
-        } elseif (!headers_sent()) {
-            header($name . ': ' . $value);
-        }
-    }
-
     $inm = trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '');
     $ims = trim($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '');
     if ($inm === $meta['etag'] || $ims === $meta['lastmod']) {
@@ -39,13 +30,13 @@ function bo_cp_send_cache_headers(string $persona_key) {
             require_once ABSPATH . WPINC . '/rest-api/class-wp-rest-response.php';
         }
         $response = new WP_REST_Response(null, 304);
-        foreach ($headers as $name => $value) {
-            $response->header($name, $value);
-        }
+        $response->set_headers($headers);
         return $response;
     }
 
-    return null;
+    return [
+        'headers' => $headers,
+    ];
 }
 
 function bo_cp_google_places_request(string $endpoint, array $params, string $cache_key) {
@@ -738,16 +729,24 @@ add_action('rest_api_init', function(){
                 return $maybe_not_modified;
             }
 
+            $headers = is_array($maybe_not_modified) ? ($maybe_not_modified['headers'] ?? []) : [];
+
             $sections = bo_cp_load_sections($persona, $lang);
             $one = $sections[$key] ?? ['title'=>'', 'content'=>''];
-            return [
+            $response = rest_ensure_response([
                 'persona' => $persona,
                 'lang'    => $lang,
                 'key'     => $key,
                 'title'   => (string)($one['title'] ?? ''),
                 'content_html' => (string)($one['content'] ?? ''),
                 'version' => 1,
-            ];
+            ]);
+
+            foreach ($headers as $name => $value) {
+                $response->header($name, $value);
+            }
+
+            return $response;
         },
         'permission_callback' => '__return_true',
         'args' => [
@@ -774,6 +773,8 @@ add_action('rest_api_init', function(){
                 return $maybe_not_modified;
             }
 
+            $headers = is_array($maybe_not_modified) ? ($maybe_not_modified['headers'] ?? []) : [];
+
             $sections = bo_cp_load_sections($persona, $lang);
             $out = [];
             if ($keys) {
@@ -787,12 +788,18 @@ add_action('rest_api_init', function(){
                 }
             }
 
-            return [
+            $response = rest_ensure_response([
                 'persona' => $persona,
                 'lang'    => $lang,
                 'sections'=> $out,
                 'version' => 1,
-            ];
+            ]);
+
+            foreach ($headers as $name => $value) {
+                $response->header($name, $value);
+            }
+
+            return $response;
         },
         'permission_callback' => '__return_true',
         'args' => [
