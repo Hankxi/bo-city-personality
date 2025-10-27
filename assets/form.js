@@ -607,47 +607,107 @@
       logDebug('Using cached place details', placeId);
       return placeDetailsCache.get(placeId);
     }
-    const params = new URLSearchParams({ place_id: placeId, lang: 'en' });
-    try {
-      logDebug('Fetching place details via REST', placeId);
+
+    const attemptRestFetch = async (langAttempt) => {
+      const params = new URLSearchParams({ place_id: placeId });
+      if (langAttempt) {
+        params.set('lang', langAttempt);
+      }
+      const langLabel = langAttempt || '(default)';
+      logDebug('Fetching place details via REST', { placeId, lang: langLabel });
       const res = await fetchWithTimeout(`${restUrl('place-details')}?${params.toString()}`, {
         credentials: 'same-origin'
       }, 7000);
-      if (!res.ok) {
-        logDebug('REST place details HTTP error', res.status);
-        throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      let payload = null;
+      if (text) {
+        try {
+          payload = JSON.parse(text);
+        } catch (jsonErr) {
+          logDebug('REST place details JSON parse error', jsonErr);
+        }
       }
-      const payload = await res.json();
+      if (!res.ok) {
+        logDebug('REST place details HTTP error', { status: res.status, lang: langLabel });
+        const error = new Error(`HTTP ${res.status}`);
+        error.status = res.status;
+        if (payload && payload.code) {
+          error.code = payload.code;
+        }
+        throw error;
+      }
+      if (!payload) {
+        const error = new Error('Invalid payload');
+        error.status = res.status;
+        throw error;
+      }
       logDebug('REST place details payload', payload);
-      if (payload && (!payload.city || !payload.country) && settings.placesKey) {
+      return payload;
+    };
+
+    const attemptedLangs = [];
+    const detectedLang = normalizeLang(detectLang());
+    if (detectedLang) {
+      attemptedLangs.push(detectedLang);
+    }
+    if (!attemptedLangs.includes('en')) {
+      attemptedLangs.push('en');
+    }
+    if (!attemptedLangs.includes('')) {
+      attemptedLangs.push('');
+    }
+
+    let restPayload = null;
+    let restError = null;
+    for (const langAttempt of attemptedLangs) {
+      try {
+        restPayload = await attemptRestFetch(langAttempt);
+        break;
+      } catch (err) {
+        restError = err;
+        const errorMeta = {
+          lang: langAttempt || '(default)',
+          status: err && err.status ? err.status : null,
+          code: err && err.code ? err.code : null,
+        };
+        logDebug('REST place details attempt failed', errorMeta);
+        if (!err || ((err.code !== 'rest_no_route') && (err.status !== 404))) {
+          break;
+        }
+      }
+    }
+
+    if (restPayload) {
+      if ((!restPayload.city || !restPayload.country) && settings.placesKey) {
         const supplement = await fetchPlaceDetailsViaGoogle(placeId);
         if (supplement) {
-          const merged = Object.assign({}, payload, {
-            city: payload.city || supplement.city || '',
-            country: payload.country || supplement.country || '',
-            place_id: payload.place_id || supplement.place_id || placeId,
+          const merged = Object.assign({}, restPayload, {
+            city: restPayload.city || supplement.city || '',
+            country: restPayload.country || supplement.country || '',
+            place_id: restPayload.place_id || supplement.place_id || placeId,
           });
           logDebug('Merged REST place details with Google fallback', merged);
           placeDetailsCache.set(placeId, merged);
           return merged;
         }
       }
-      placeDetailsCache.set(placeId, payload);
+      placeDetailsCache.set(placeId, restPayload);
       logDebug('Cached REST place details', placeId);
-      return payload;
-    } catch (err) {
-      console.error('Failed to fetch place details', err);
-      if (settings.placesKey) {
-        const fallback = await fetchPlaceDetailsViaGoogle(placeId);
-        if (fallback) {
-          placeDetailsCache.set(placeId, fallback);
-          logDebug('Using Google fallback for place details', fallback);
-          return fallback;
-        }
-      }
-      logDebug('Place details fetch failed completely', placeId);
-      return null;
+      return restPayload;
     }
+
+    const finalError = restError || new Error('Unknown REST error');
+    console.error('Failed to fetch place details', finalError);
+    if (settings.placesKey) {
+      const fallback = await fetchPlaceDetailsViaGoogle(placeId);
+      if (fallback) {
+        placeDetailsCache.set(placeId, fallback);
+        logDebug('Using Google fallback for place details', fallback);
+        return fallback;
+      }
+    }
+    logDebug('Place details fetch failed completely', placeId);
+    return null;
   };
 
   const initLocationPicker = () => {
