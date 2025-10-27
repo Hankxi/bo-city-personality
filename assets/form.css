@@ -236,6 +236,10 @@
 }
 .bo-cp-form button[type="submit"] {
   justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   height: var(--cp-control-h);
   min-width: max(var(--cp-action-minw), 220px);
   padding: 0 28px;
