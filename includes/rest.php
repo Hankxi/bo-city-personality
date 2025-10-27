@@ -28,10 +28,13 @@ function bo_cp_google_places_request(string $endpoint, array $params, string $ca
     if (!$api_key) {
         return new WP_Error('config_error', 'Google Places API key not configured.', ['status' => 500]);
     }
-    $cache_name = 'bo_cp_places_' . md5($cache_key);
-    $cached = get_transient($cache_name);
-    if (is_array($cached)) {
-        return $cached;
+    $has_session = !empty($params['sessiontoken']);
+    $cache_name = $has_session ? '' : 'bo_cp_places_' . md5($cache_key);
+    if (!$has_session) {
+        $cached = get_transient($cache_name);
+        if (is_array($cached)) {
+            return $cached;
+        }
     }
     $params['key'] = $api_key;
     $url = add_query_arg($params, 'https://maps.googleapis.com/maps/api/place/' . $endpoint . '/json');
@@ -47,7 +50,7 @@ function bo_cp_google_places_request(string $endpoint, array $params, string $ca
     if (!is_array($body)) {
         return new WP_Error('remote_error', 'Invalid Google Places API response.', ['status' => 502]);
     }
-    if (($body['status'] ?? '') === 'OK') {
+    if (($body['status'] ?? '') === 'OK' && !$has_session) {
         set_transient($cache_name, $body, HOUR_IN_SECONDS * 6);
     }
     return $body;
@@ -228,7 +231,7 @@ function bo_cp_lookup_place(string $city, string $country, string $place_id = ''
     ];
 }
 
-function bo_cp_google_places_autocomplete(string $input, string $lang = 'en', string $country_code = '') {
+function bo_cp_google_places_autocomplete(string $input, string $lang = 'en', string $country_code = '', string $session_token = '') {
     $lang = $lang ?: 'en';
     $params = [
         'input'    => $input,
@@ -238,6 +241,10 @@ function bo_cp_google_places_autocomplete(string $input, string $lang = 'en', st
     $country_code = strtoupper(trim($country_code));
     if ($country_code !== '') {
         $params['components'] = 'country:' . strtolower($country_code);
+    }
+    $session_token = trim($session_token);
+    if ($session_token !== '') {
+        $params['sessiontoken'] = $session_token;
     }
 
     return bo_cp_google_places_request('autocomplete', $params, 'autocomplete_' . $lang . '_' . $country_code . '_' . $input);
@@ -438,6 +445,7 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
     $input = sanitize_text_field($req->get_param('input'));
     $lang  = bo_cp_preferred_lang($req->get_param('lang'));
     $countryParam = sanitize_text_field($req->get_param('country'));
+    $session_token = sanitize_text_field($req->get_param('session_token'));
 
     if (strlen($input) < 2) {
         return [
@@ -451,7 +459,7 @@ function bo_cp_rest_place_suggestions(WP_REST_Request $req) {
     $country_code = strtoupper($normalized['code'] ?? '');
     $country_name = trim($normalized['name'] ?: $normalized['display'] ?: $countryParam);
 
-    $response = bo_cp_google_places_autocomplete($input, $lang, $country_code);
+    $response = bo_cp_google_places_autocomplete($input, $lang, $country_code, $session_token);
     $predictions = [];
     $seenIds = [];
     $response_status = '';

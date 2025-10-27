@@ -79,6 +79,21 @@
   };
 
   announceDebugState();
+  const createSessionToken = () => {
+    try {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+      }
+    } catch (err) {
+      // ignore crypto errors
+    }
+    const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
+    return template.replace(/[xy]/g, (char) => {
+      const rand = Math.random() * 16 | 0;
+      const value = char === 'x' ? rand : (rand & 0x3) | 0x8;
+      return value.toString(16);
+    });
+  };
   const normalizeRestRoot = (value) => {
     if (!value) return '/wp-json/bo/v1';
     try {
@@ -245,13 +260,14 @@
 
   const googleAutocompleteCache = {};
 
-  const fetchSuggestionsViaGoogle = async (query) => {
+  const fetchSuggestionsViaGoogle = async (query, options = {}) => {
     const trimmed = (query || '').trim();
     if (trimmed.length < 2) {
       logDebug('Google suggestions skipped, query too short', trimmed);
       return [];
     }
-    const cacheKey = `${trimmed}|${detectLang()}`;
+    const lang = (options && options.lang) || detectLang() || 'en';
+    const cacheKey = `${trimmed}|${lang}`;
     if (googleAutocompleteCache[cacheKey]) {
       logDebug('Using cached Google suggestions', cacheKey, googleAutocompleteCache[cacheKey]);
       return googleAutocompleteCache[cacheKey];
@@ -268,8 +284,18 @@
       const request = {
         input: trimmed,
         types: ['(cities)'],
-        language: detectLang() || 'en',
+        language: lang,
       };
+      if (options && typeof options.getSessionToken === 'function') {
+        try {
+          const providedToken = options.getSessionToken(maps);
+          if (providedToken) {
+            request.sessionToken = providedToken;
+          }
+        } catch (tokenErr) {
+          logDebug('Google session token provider error', tokenErr);
+        }
+      }
       const predictions = await new Promise((resolve, reject) => {
         service.getPlacePredictions(request, (items, status) => {
           if (status === maps.places.PlacesServiceStatus.OK && Array.isArray(items)) {
@@ -322,7 +348,7 @@
     return { city, country, country_code: countryCode };
   };
 
-  const fetchPlaceDetailsViaGoogle = async (placeId) => {
+  const fetchPlaceDetailsViaGoogle = async (placeId, options = {}) => {
     if (!placeId || !settings.placesKey) {
       logDebug('Skipping Google place details', { placeId, hasKey: Boolean(settings.placesKey) });
       return null;
@@ -347,6 +373,16 @@
         language: 'en',
         fields: ['address_component', 'geometry.location', 'formatted_address', 'name', 'place_id'],
       };
+      if (options && typeof options.getSessionToken === 'function') {
+        try {
+          const providedToken = options.getSessionToken(maps);
+          if (providedToken) {
+            request.sessionToken = providedToken;
+          }
+        } catch (tokenErr) {
+          logDebug('Google details session token error', tokenErr);
+        }
+      }
       const result = await new Promise((resolve, reject) => {
         service.getDetails(request, (place, status) => {
           if (status === maps.places.PlacesServiceStatus.OK && place) {
@@ -601,7 +637,7 @@
     }
   };
 
-  const fetchPlaceDetails = async (placeId) => {
+  const fetchPlaceDetails = async (placeId, options = {}) => {
     if (!placeId) return null;
     if (placeDetailsCache.has(placeId)) {
       logDebug('Using cached place details', placeId);
@@ -679,7 +715,7 @@
 
     if (restPayload) {
       if ((!restPayload.city || !restPayload.country) && settings.placesKey) {
-        const supplement = await fetchPlaceDetailsViaGoogle(placeId);
+        const supplement = await fetchPlaceDetailsViaGoogle(placeId, options);
         if (supplement) {
           const merged = Object.assign({}, restPayload, {
             city: restPayload.city || supplement.city || '',
@@ -699,7 +735,7 @@
     const finalError = restError || new Error('Unknown REST error');
     console.error('Failed to fetch place details', finalError);
     if (settings.placesKey) {
-      const fallback = await fetchPlaceDetailsViaGoogle(placeId);
+      const fallback = await fetchPlaceDetailsViaGoogle(placeId, options);
       if (fallback) {
         placeDetailsCache.set(placeId, fallback);
         logDebug('Using Google fallback for place details', fallback);
@@ -740,6 +776,8 @@
     let currentSuggestions = [];
     let activeIndex = -1;
     let lastQuery = '';
+    let serverSessionToken = '';
+    let googleSessionToken = null;
 
     // -------------------------------
     // PORTAL OVERLAY: mount to <body>
@@ -816,6 +854,33 @@
       cityField.value = '';
       countryField.value = '';
       placeField.value = '';
+    };
+
+    const ensureServerSessionToken = () => {
+      if (!serverSessionToken) {
+        serverSessionToken = createSessionToken();
+        logDebug('Created server session token', serverSessionToken.slice(0, 8));
+      }
+      return serverSessionToken;
+    };
+
+    const provideGoogleSessionToken = (maps) => {
+      if (!maps || !maps.places || !maps.places.AutocompleteSessionToken) {
+        return null;
+      }
+      if (!googleSessionToken) {
+        googleSessionToken = new maps.places.AutocompleteSessionToken();
+        logDebug('Created Google session token');
+      }
+      return googleSessionToken;
+    };
+
+    const resetSessionContext = () => {
+      if (serverSessionToken || googleSessionToken) {
+        logDebug('Reset suggestion session context');
+      }
+      serverSessionToken = '';
+      googleSessionToken = null;
     };
 
     const dedupeSuggestions = (items, limit = 8) => {
@@ -912,10 +977,11 @@
       placeField.value = item.place_id || '';
       let resolvedCity = '';
       let resolvedCountry = '';
+      const sessionOptions = { getSessionToken: provideGoogleSessionToken };
 
       if (item.place_id) {
         logDebug('Fetching details for applied suggestion', item.place_id);
-        const details = await fetchPlaceDetails(item.place_id);
+        const details = await fetchPlaceDetails(item.place_id, sessionOptions);
         if (details) {
           resolvedCity = (details.city || '').toString().trim();
           resolvedCountry = (details.country || '').toString().trim();
@@ -927,7 +993,7 @@
 
       if (item.place_id && (!resolvedCity || !resolvedCountry) && settings.placesKey) {
         logDebug('Attempting Google fallback for suggestion', item.place_id);
-        const fallbackDetails = await fetchPlaceDetailsViaGoogle(item.place_id);
+        const fallbackDetails = await fetchPlaceDetailsViaGoogle(item.place_id, sessionOptions);
         if (fallbackDetails) {
           if (!resolvedCity && fallbackDetails.city) {
             resolvedCity = fallbackDetails.city.toString().trim();
@@ -972,6 +1038,8 @@
       } else {
         setStatus('');
       }
+
+      resetSessionContext();
     };
 
     const fetchSuggestions = async (query) => {
@@ -981,6 +1049,7 @@
         hideSuggestions();
         setStatus('');
         lastQuery = '';
+        resetSessionContext();
         return;
       }
       if (trimmed === lastQuery && currentSuggestions.length) {
@@ -993,6 +1062,7 @@
       lastQuery = trimmed;
       const currentToken = ++requestToken;
       logDebug('Fetching suggestions', { trimmed, token: currentToken });
+      const activeLang = detectLang() || 'en';
       setStatus(input.dataset.loadingLabel || '', 'loading');
       hideSuggestions();
 
@@ -1023,8 +1093,15 @@
       try {
         const params = new URLSearchParams({
           input: trimmed,
-          lang: detectLang(),
+          lang: activeLang,
         });
+        if (countryField.value) {
+          params.set('country', countryField.value);
+        }
+        const sessionToken = ensureServerSessionToken();
+        if (sessionToken) {
+          params.set('session_token', sessionToken);
+        }
         logDebug('Requesting server suggestions', params.toString());
         const res = await fetchWithTimeout(`${restUrl('places')}?${params.toString()}`, {
           credentials: 'same-origin'
@@ -1067,7 +1144,10 @@
       }
 
       if (settings.placesKey) {
-        fetchSuggestionsViaGoogle(trimmed).then((googleResults) => {
+        fetchSuggestionsViaGoogle(trimmed, {
+          lang: activeLang,
+          getSessionToken: provideGoogleSessionToken,
+        }).then((googleResults) => {
           if (googleTimeoutId) {
             clearTimeout(googleTimeoutId);
             googleTimeoutId = null;
@@ -1192,6 +1272,7 @@
         hideSuggestions();
         clearBtn.hidden = true;
         setStatus('');
+        resetSessionContext();
         input.focus();
       });
     }
