@@ -311,28 +311,13 @@
           reject(new Error(`Google Places status ${status}`));
         });
       });
-      const normalized = predictions.filter((prediction) => {
-        if (!Array.isArray(prediction.types) || !prediction.types.length) {
-          return false;
-        }
-        const allowedTypes = ['locality', 'postal_town', 'administrative_area_level_5', 'administrative_area_level_4', 'administrative_area_level_3', 'administrative_area_level_2', 'administrative_area_level_1', 'colloquial_area'];
-        if (prediction.types.some((type) => allowedTypes.includes(type))) {
-          return true;
-        }
-        if (prediction.types.includes('political') || prediction.types.includes('geocode')) {
-          const termCount = Array.isArray(prediction.terms) ? prediction.terms.length : 0;
-          if (termCount >= 2) {
-            return true;
-          }
-        }
-        return false;
-      }).map((prediction) => ({
+      const normalized = (Array.isArray(predictions) ? predictions : []).map((prediction) => ({
         place_id: prediction.place_id || '',
         description: prediction.description || '',
         matched_substrings: prediction.matched_substrings || [],
         terms: prediction.terms || [],
+        types: prediction.types || [],
       })).filter((item) => item.description);
-      logDebug('Google suggestions filtered', { original: Array.isArray(predictions) ? predictions.length : 0, filtered: normalized.length });
       googleAutocompleteCache[cacheKey] = normalized;
       logDebug('Cached Google suggestions', cacheKey, normalized.length);
       return normalized;

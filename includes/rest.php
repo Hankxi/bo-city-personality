@@ -251,31 +251,6 @@ function bo_cp_google_places_autocomplete(string $input, string $lang = 'en', st
         return $response;
     }
 
-    if (isset($response['predictions']) && is_array($response['predictions'])) {
-        $allowed = ['locality', 'postal_town', 'administrative_area_level_5', 'administrative_area_level_4', 'administrative_area_level_3', 'administrative_area_level_2', 'administrative_area_level_1', 'colloquial_area'];
-        $response['predictions'] = array_values(array_filter($response['predictions'], function ($prediction) use ($allowed) {
-            if (!is_array($prediction)) {
-                return false;
-            }
-            $types = $prediction['types'] ?? [];
-            if (!is_array($types) || empty($types)) {
-                return false;
-            }
-            foreach ($types as $type) {
-                if (in_array($type, $allowed, true)) {
-                    return true;
-                }
-            }
-            if (in_array('political', $types, true) || in_array('geocode', $types, true)) {
-                $terms = $prediction['terms'] ?? [];
-                if (is_array($terms) && count($terms) >= 2) {
-                    return true;
-                }
-            }
-            return false;
-        }));
-    }
-
     return $response;
 }
 
