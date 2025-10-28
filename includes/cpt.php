@@ -31,7 +31,11 @@ function bo_cp_register_cpts() {
         'menu_icon'          => 'dashicons-id',
         'supports'           => array('title','author','revisions'),
         'has_archive'        => false,
-        'capability_type'    => 'post'
+        'capability_type'    => 'post',
+        'map_meta_cap'       => true,
+        'capabilities'       => array(
+            'create_posts' => 'do_not_allow',
+        )
     ));
 }
 
