@@ -91,6 +91,8 @@ add_action('admin_enqueue_scripts', function ($hook) {
 
 function bo_cp_render_persona_box(WP_Post $post): void {
     wp_nonce_field('bo_cp_save', 'bo_cp_nonce');
+    wp_enqueue_editor();
+    wp_enqueue_media();
 
     $persona_key = get_post_meta($post->ID, 'persona_key', true);
     if (! $persona_key) {
@@ -737,12 +739,12 @@ add_action('admin_post_bo_cp_export_results', function () {
     }
 
     nocache_headers();
+    status_header(200);
     $filename = 'persona-submissions-' . date_i18n('Y-m-d') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Content-Transfer-Encoding: binary');
-    header('Pragma: no-cache');
-    header('Expires: 0');
 
     $output = fopen('php://output', 'w');
     if (!$output) {

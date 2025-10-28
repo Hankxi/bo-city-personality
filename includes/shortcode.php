@@ -51,8 +51,8 @@ class BO_CP_Shortcodes {
         $lang_key = strtolower(bo_cp_preferred_lang($active_lang, 'en'));
         $is_chinese = strpos($lang_key, 'zh') === 0;
 
-        $location_label = $is_chinese ? '城市 / 地址' : __('City or Address', 'bo-city-personality');
-        $location_placeholder = $is_chinese ? '请输入城市或地址' : __('Start typing a city or address', 'bo-city-personality');
+        $location_label = $is_chinese ? '城市 / 地点' : __('City or Place', 'bo-city-personality');
+        $location_placeholder = $is_chinese ? '请输入城市或地点' : __('Start typing a city or place', 'bo-city-personality');
         $location_clear_label = $is_chinese ? '清除' : __('Clear', 'bo-city-personality');
         $location_error = $is_chinese ? '请选择列表中的城市或地点。' : __('Please select a city from the suggestions.', 'bo-city-personality');
         $location_loading = $is_chinese ? '正在搜索…' : __('Searching…', 'bo-city-personality');
