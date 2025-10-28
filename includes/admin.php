@@ -75,10 +75,22 @@ add_action('add_meta_boxes', function () {
     add_meta_box('bo_cp_persona', 'Persona Content', 'bo_cp_render_persona_box', 'city_persona', 'normal', 'high');
 });
 
-function bo_cp_render_persona_box(WP_Post $post): void {
-    wp_nonce_field('bo_cp_save', 'bo_cp_nonce');
+add_action('admin_enqueue_scripts', function ($hook) {
+    if ($hook !== 'post.php' && $hook !== 'post-new.php') {
+        return;
+    }
+
+    $screen = get_current_screen();
+    if (! $screen || $screen->post_type !== 'city_persona') {
+        return;
+    }
+
     wp_enqueue_editor();
     wp_enqueue_media();
+});
+
+function bo_cp_render_persona_box(WP_Post $post): void {
+    wp_nonce_field('bo_cp_save', 'bo_cp_nonce');
 
     $persona_key = get_post_meta($post->ID, 'persona_key', true);
     if (! $persona_key) {
@@ -720,10 +732,17 @@ add_action('admin_post_bo_cp_export_results', function () {
 
     $rows = $wpdb->get_results($items_sql, ARRAY_A);
 
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+
     nocache_headers();
     $filename = 'persona-submissions-' . date_i18n('Y-m-d') . '.csv';
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename=' . $filename);
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Content-Transfer-Encoding: binary');
+    header('Pragma: no-cache');
+    header('Expires: 0');
 
     $output = fopen('php://output', 'w');
     if (!$output) {
