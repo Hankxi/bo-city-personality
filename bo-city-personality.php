@@ -9,13 +9,6 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-// Avoid triggering plugin hooks on the login screen where any accidental output
-// could interfere with the authentication cookies being sent.
-global $pagenow;
-if ( isset($pagenow) && $pagenow === 'wp-login.php' ) {
-    return;
-}
-
 // Constants (read-only from wp-config.php)
 if ( ! defined('GMP_SERVER_PLACES_API_KEY') ) {
     // You should define GMP_SERVER_PLACES_API_KEY in wp-config.php
@@ -38,18 +31,14 @@ require_once plugin_dir_path(__FILE__) . 'includes/rest.php';
 require_once plugin_dir_path(__FILE__) . 'includes/shortcode.php';
 require_once plugin_dir_path(__FILE__) . 'includes/admin.php';
 
-// Init plugin dirs (kept from your original scaffold)
-add_action('init', function() {
-    $plugin_dir = plugin_dir_path(__FILE__);
-    if (!file_exists($plugin_dir . 'includes')) { @mkdir($plugin_dir . 'includes', 0755, true); }
-    if (!file_exists($plugin_dir . 'data')) { @mkdir($plugin_dir . 'data', 0755, true); }
-});
-
 register_activation_hook(__FILE__, function(){
     // Flush rewrite for REST and CPTs
     bo_cp_register_cpts();
     if (function_exists('bo_cp_ensure_results_table')) {
         bo_cp_ensure_results_table();
+    }
+    if (function_exists('bo_cp_persona_data_dir')) {
+        bo_cp_persona_data_dir();
     }
     flush_rewrite_rules();
 });
