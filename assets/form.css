@@ -1,0 +1,304 @@
+/* -----------------------------------------------------------
+ * City Persona — compact, grid-based, tokenized styling
+ * Drop-in replacement; keeps existing class names & structure
+ * ---------------------------------------------------------*/
+
+/* === Design tokens (scoped) === */
+.bo-cp-widget {
+  /* 尺寸与皮肤 */
+  --cp-radius: 16px;
+  --cp-radius-pill: 999px;
+  --cp-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+
+  --cp-color-text: #0f172a;
+  --cp-color-muted: #6b7280;
+  --cp-color-emph: #1f2937;
+  --cp-color-border: #e5e7eb;
+  --cp-color-border-strong: #d1d5db;
+  --cp-color-bg: #ffffff;
+  --cp-color-input: #f9fafb;
+
+  --cp-brand: #6366f1;
+  --cp-brand-darker: #4338ca;
+  --cp-brand-ink: #312e81;
+
+  /* 统一控件高度与最小按钮宽度 */
+  --cp-control-h: 44px;
+  --cp-action-minw: 140px;
+
+  /* 容器左右留白：≈2% 且有上下限 */
+  --cp-pad-inline: clamp(16px, 2vw, 32px);
+
+  max-width: 520px;
+  margin: 0 auto;
+  background-color: var(--cp-color-bg);
+  border: 1px solid var(--cp-color-border);
+  border-radius: var(--cp-radius);
+  padding: 28px var(--cp-pad-inline);
+  box-shadow: var(--cp-shadow);
+  font-family: inherit;
+  color: var(--cp-color-text);
+}
+
+/* === Form skeleton === */
+.bo-cp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 约束宿主主题对 .row 的侵入式样式，保持表单内容对齐 */
+.bo-cp-form .row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.bo-cp-form .row > label {
+  align-self: flex-start;
+}
+
+/* label & badges */
+.bo-cp-form label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--cp-color-emph);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.bo-cp-form .optional-badge {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--cp-brand);
+  background: color-mix(in srgb, var(--cp-brand) 12%, transparent);
+  border-radius: var(--cp-radius-pill);
+  padding: 2px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* === Field controls (统一尺寸/边距/聚焦) === */
+.bo-cp-form input[type="text"],
+.bo-cp-form input[type="search"],
+.bo-cp-form input[type="email"],
+.bo-cp-form input[type="date"],
+.bo-cp-form input[type="number"],
+.bo-cp-form input[type="password"],
+.bo-cp-form select,
+.bo-cp-form textarea {
+  width: 100%;
+  height: var(--cp-control-h);
+  padding: 10px 14px;
+  border: 1px solid var(--cp-color-border-strong);
+  border-radius: 10px;
+  font-size: 1rem;
+  color: #111827;
+  background-color: var(--cp-color-input);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  box-sizing: border-box; /* 防止右侧“顶边” */
+}
+.bo-cp-form input:focus,
+.bo-cp-form select:focus,
+.bo-cp-form textarea:focus {
+  border-color: var(--cp-brand);
+  background-color: #ffffff;
+  outline: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-brand) 15%, transparent);
+}
+.bo-cp-form input::placeholder,
+.bo-cp-form textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* === Location row — grid (Input + Clear) === */
+.bo-cp-location {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-auto-flow: row;
+  gap: 12px;
+  position: relative; /* 为了 suggestions 定位 */
+}
+.bo-cp-location__input {
+  /* 不再为按钮“让位”，交给 Grid 布局 */
+  padding-right: 14px;
+}
+
+/* Clear 按钮（与 Manual Entry/Submit 同一体系） */
+.bo-cp-location__clear {
+  justify-self: end;
+  min-height: var(--cp-control-h);
+  min-width: var(--cp-action-minw);
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--cp-radius-pill);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  background-color: color-mix(in srgb, var(--cp-brand) 12%, transparent);
+  color: var(--cp-brand-darker);
+}
+.bo-cp-location__clear:hover,
+.bo-cp-location__clear:focus {
+  color: var(--cp-brand-ink);
+  background-color: color-mix(in srgb, var(--cp-brand) 20%, transparent);
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--cp-brand) 18%, transparent);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+/* 状态行 */
+.bo-cp-location__status {
+  font-size: 0.85rem;
+  color: var(--cp-color-muted);
+  min-height: 1em;
+}
+.bo-cp-location__status[data-state="loading"] { color: var(--cp-brand-darker); }
+.bo-cp-location__status[data-state="error"] { color: #dc2626; }
+
+/* 建议列表（保持原语义，但外观更清爽） */
+.bo-cp-location__suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  list-style: none;
+  margin: 0;
+  padding: 6px 0;
+  border: 1px solid var(--cp-color-border-strong);
+  border-radius: 12px;
+  background-color: #fff;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 30;
+}
+.bo-cp-location__item { margin: 0; padding: 0; }
+.bo-cp-location__suggestion {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  color: #1f2937;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.bo-cp-location__suggestion:hover,
+.bo-cp-location__suggestion.is-active,
+.bo-cp-location__suggestion:focus {
+  background-color: color-mix(in srgb, var(--cp-brand) 12%, transparent);
+  color: #111827;
+  outline: none;
+}
+
+/* === Date row — grid (Input + Manual Entry) === */
+.bo-cp-date {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+/* Manual Entry 按钮与 Clear 统一体系 */
+.bo-cp-date__toggle {
+  justify-self: end;
+  min-height: var(--cp-control-h);
+  min-width: var(--cp-action-minw);
+  padding: 0 18px;
+  border: none;
+  border-radius: var(--cp-radius-pill);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  background-color: color-mix(in srgb, var(--cp-brand) 12%, transparent);
+  color: var(--cp-brand-darker);
+}
+.bo-cp-date__toggle:hover,
+.bo-cp-date__toggle:focus {
+  background-color: color-mix(in srgb, var(--cp-brand) 20%, transparent);
+  color: var(--cp-brand-ink);
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--cp-brand) 18%, transparent);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+/* === Submit (Compute Persona) — 同体系 + 居中/满宽 === */
+.bo-cp-form .row--actions {
+  margin-top: 12px;
+  display: grid;
+}
+.bo-cp-form button[type="submit"] {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  height: var(--cp-control-h);
+  min-width: max(var(--cp-action-minw), 220px);
+  padding: 0 28px;
+  border: none;
+  border-radius: var(--cp-radius-pill);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--cp-brand), var(--cp-brand-darker));
+  color: #fff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.bo-cp-form button[type="submit"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--cp-brand) 30%, transparent);
+}
+.bo-cp-form button[type="submit"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-brand) 25%, transparent);
+}
+
+/* === Result box === */
+#bo-cp-result {
+  margin-top: 28px;
+  padding: 24px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--cp-brand) 20%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--cp-brand) 8%, transparent),
+    color-mix(in srgb, #3b82f6 8%, transparent)
+  );
+  color: #1f2937;
+}
+#bo-cp-result.cp-result--transparent {
+  background: transparent;       /* 透明底 */
+  border: 1px solid var(--cp-color-border-strong);
+}
+#bo-cp-result .tagline {
+  font-size: 1.05rem;
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+#bo-cp-result strong { font-weight: 700; }
+
+/* === Responsive === */
+@media (min-width: 640px) {
+  /* 宽屏：City/Date 为两列：输入 + 按钮 */
+  .bo-cp-location { grid-template-columns: 1fr max-content; }
+  .bo-cp-date     { grid-template-columns: 1fr max-content; }
+
+  /* 主按钮自然宽度并居中（不满宽） */
+  .bo-cp-form button[type="submit"] { width: auto; }
+}
+
+@media (max-width: 639.98px) {
+  /* 窄屏：按钮换到下一行，主按钮满宽 */
+  .bo-cp-form button[type="submit"] { width: 100%; }
+}
