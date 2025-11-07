@@ -63,7 +63,11 @@ class BO_CP_Shortcodes {
         $manual_entry_label = $is_chinese ? '手动输入' : __('Manual Entry', 'bo-city-personality');
         $manual_picker_label = $is_chinese ? '使用日期选择' : __('Use Date Picker', 'bo-city-personality');
 
-        $hour_slot_label = $is_chinese ? '出生时间（24小时制）' : __('Birth Time (24-hour)', 'bo-city-personality');
+        $hour_slot_labels = [
+            'zh' => '出生时间（24小时制）',
+        ];
+        $hour_slot_label = $hour_slot_labels[$lang_key] ?? __('Birth Time (24-hour)', 'bo-city-personality');
+        $hour_slot_label = apply_filters('bo_cp_birth_time_label', $hour_slot_label, $lang_key);
 
         $gender_label = $is_chinese ? '性别' : __('Gender', 'bo-city-personality');
         $gender_options = [
@@ -108,8 +112,10 @@ class BO_CP_Shortcodes {
               </div>
             </div>
             <div class="row">
-              <label for="bo-cp-birth-time"><?php echo esc_html($hour_slot_label); ?></label>
-              <input type="time" id="bo-cp-birth-time" name="hour_slot" value="11:59" step="60" required>
+              <label for="bo-cp-birth-time"><?php echo esc_html($hour_slot_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
+              <div class="bo-cp-date bo-cp-time">
+                <input type="time" id="bo-cp-birth-time" name="hour_slot" value="11:59" step="60">
+              </div>
             </div>
             <div class="row">
               <label for="bo-cp-person-name"><?php echo esc_html($name_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
