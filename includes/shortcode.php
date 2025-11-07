@@ -63,21 +63,7 @@ class BO_CP_Shortcodes {
         $manual_entry_label = $is_chinese ? '手动输入' : __('Manual Entry', 'bo-city-personality');
         $manual_picker_label = $is_chinese ? '使用日期选择' : __('Use Date Picker', 'bo-city-personality');
 
-        $hour_slot_label = $is_chinese ? '时辰' : __('Hour Slot', 'bo-city-personality');
-        $hour_slots = [
-            '23-01' => $is_chinese ? '23:00-01:00（子时）' : __('23:00-01:00 (Zi Hour)', 'bo-city-personality'),
-            '01-03' => $is_chinese ? '01:00-03:00（丑时）' : __('01:00-03:00 (Chou Hour)', 'bo-city-personality'),
-            '03-05' => $is_chinese ? '03:00-05:00（寅时）' : __('03:00-05:00 (Yin Hour)', 'bo-city-personality'),
-            '05-07' => $is_chinese ? '05:00-07:00（卯时）' : __('05:00-07:00 (Mao Hour)', 'bo-city-personality'),
-            '07-09' => $is_chinese ? '07:00-09:00（辰时）' : __('07:00-09:00 (Chen Hour)', 'bo-city-personality'),
-            '09-11' => $is_chinese ? '09:00-11:00（巳时）' : __('09:00-11:00 (Si Hour)', 'bo-city-personality'),
-            '11-13' => $is_chinese ? '11:00-13:00（午时）' : __('11:00-13:00 (Wu Hour)', 'bo-city-personality'),
-            '13-15' => $is_chinese ? '13:00-15:00（未时）' : __('13:00-15:00 (Wei Hour)', 'bo-city-personality'),
-            '15-17' => $is_chinese ? '15:00-17:00（申时）' : __('15:00-17:00 (Shen Hour)', 'bo-city-personality'),
-            '17-19' => $is_chinese ? '17:00-19:00（酉时）' : __('17:00-19:00 (You Hour)', 'bo-city-personality'),
-            '19-21' => $is_chinese ? '19:00-21:00（戌时）' : __('19:00-21:00 (Xu Hour)', 'bo-city-personality'),
-            '21-23' => $is_chinese ? '21:00-23:00（亥时）' : __('21:00-23:00 (Hai Hour)', 'bo-city-personality'),
-        ];
+        $hour_slot_label = $is_chinese ? '出生时间（24小时制）' : __('Birth Time (24-hour)', 'bo-city-personality');
 
         $gender_label = $is_chinese ? '性别' : __('Gender', 'bo-city-personality');
         $gender_options = [
@@ -122,13 +108,8 @@ class BO_CP_Shortcodes {
               </div>
             </div>
             <div class="row">
-              <label for="bo-cp-hour-slot"><?php echo esc_html($hour_slot_label); ?></label>
-              <select id="bo-cp-hour-slot" name="hour_slot">
-                <option value=""><?php echo esc_html($is_chinese ? '请选择（可选）' : __('Select (optional)', 'bo-city-personality')); ?></option>
-                <?php foreach ($hour_slots as $value => $label) : ?>
-                  <option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option>
-                <?php endforeach; ?>
-              </select>
+              <label for="bo-cp-birth-time"><?php echo esc_html($hour_slot_label); ?></label>
+              <input type="time" id="bo-cp-birth-time" name="hour_slot" value="11:59" step="60" required>
             </div>
             <div class="row">
               <label for="bo-cp-person-name"><?php echo esc_html($name_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
