@@ -12,8 +12,8 @@ class BO_CP_Shortcodes {
     }
 
     public static function assets() {
-        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.1.0', true);
-        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.1.0');
+        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.1.1', true);
+        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.1.1');
     }
 
     public static function expand_section_shortcodes($content) {
@@ -63,10 +63,7 @@ class BO_CP_Shortcodes {
         $manual_entry_label = $is_chinese ? '手动输入' : __('Manual Entry', 'bo-city-personality');
         $manual_picker_label = $is_chinese ? '使用日期选择' : __('Use Date Picker', 'bo-city-personality');
 
-        $hour_slot_labels = [
-            'zh' => '出生时间（24小时制）',
-        ];
-        $hour_slot_label = $hour_slot_labels[$lang_key] ?? __('Birth Time (24-hour)', 'bo-city-personality');
+        $hour_slot_label = $is_chinese ? '出生时间（24小时制）' : __('Birth Time (24-hour)', 'bo-city-personality');
         $hour_slot_label = apply_filters('bo_cp_birth_time_label', $hour_slot_label, $lang_key);
 
         $gender_label = $is_chinese ? '性别' : __('Gender', 'bo-city-personality');

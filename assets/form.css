@@ -86,6 +86,7 @@
 .bo-cp-form input[type="search"],
 .bo-cp-form input[type="email"],
 .bo-cp-form input[type="date"],
+.bo-cp-form input[type="time"],
 .bo-cp-form input[type="number"],
 .bo-cp-form input[type="password"],
 .bo-cp-form select,
