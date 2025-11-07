@@ -63,6 +63,8 @@ class BO_CP_Shortcodes {
         $manual_entry_label = $is_chinese ? '手动输入' : __('Manual Entry', 'bo-city-personality');
         $manual_picker_label = $is_chinese ? '使用日期选择' : __('Use Date Picker', 'bo-city-personality');
 
+        $birth_date_label = $is_chinese ? '出生日期' : __('Birth Date', 'bo-city-personality');
+
         $hour_slot_label = $is_chinese ? '出生时间（24小时制）' : __('Birth Time (24-hour)', 'bo-city-personality');
         $hour_slot_label = apply_filters('bo_cp_birth_time_label', $hour_slot_label, $lang_key);
 
@@ -102,7 +104,7 @@ class BO_CP_Shortcodes {
               </div>
             </div>
             <div class="row">
-              <label for="bo-cp-birth-date"><?php esc_html_e('Birth Date', 'bo-city-personality'); ?></label>
+              <label for="bo-cp-birth-date"><?php echo esc_html($birth_date_label); ?></label>
               <div class="bo-cp-date">
                 <input type="date" id="bo-cp-birth-date" name="birth_date" value="2000-01-01" required data-date-input>
                 <button type="button" class="bo-cp-date__toggle" data-date-toggle data-picker-label="<?php echo esc_attr($manual_picker_label); ?>" data-manual-label="<?php echo esc_attr($manual_entry_label); ?>"><?php echo esc_html($manual_entry_label); ?></button>
