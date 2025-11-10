@@ -712,44 +712,68 @@ if (!function_exists('bo_cp_upsert_persona_post')) {
     }
 }
 
-if (!function_exists('bo_cp_parse_hour_slot')) {
-    function bo_cp_parse_hour_slot($slot): int {
+if (!function_exists('bo_cp_parse_birth_time')) {
+    function bo_cp_parse_birth_time($slot): array {
         $slot = trim((string)$slot);
-        if ($slot === '') {
-            return 12;
-        }
+        $hour = null;
+        $minute = null;
 
-        if (preg_match('/^(\d{1,2}):([0-5]\d)$/', $slot, $m)) {
+        if ($slot === '') {
+            $hour = 11;
+            $minute = 59;
+        } elseif (preg_match('/^(\d{1,2}):([0-5]\d)$/', $slot, $m)) {
             $hour = intval($m[1]);
             $minute = intval($m[2]);
-            if ($hour < 0) { $hour = 0; }
-            if ($hour > 23) { $hour = $hour % 24; }
-
-            $totalMinutes = ($hour * 60) + $minute;
-            if ($totalMinutes >= 1380 || $totalMinutes < 60) {
-                $shi = 0;
-            } else {
-                $shi = (int) floor(($totalMinutes - 60) / 120) + 1;
-            }
-            $shi = max(0, min(11, $shi));
-            return ($shi * 2) % 24;
-        }
-
-        if (preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $slot, $m)) {
+        } elseif (preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $slot, $m)) {
             $a = max(0, min(23, intval($m[1])));
             $b = max(0, min(23, intval($m[2])));
-            $mid = (int) round(($a + $b) / 2);
-            return max(0, min(23, $mid));
+            $avg = ($a + $b) / 2.0;
+            $hour = (int) floor($avg);
+            $minute = (int) round(($avg - $hour) * 60);
+            if ($minute >= 60) {
+                $minute -= 60;
+                $hour += 1;
+            }
+        } elseif (preg_match('/^(\d{1,2})$/', $slot, $m)) {
+            $hour = intval($m[1]);
+            $minute = 0;
         }
 
-        if (preg_match('/^(\d{1,2})$/', $slot, $m)) {
-            $h = intval($m[1]);
-            if ($h < 0) { $h = 0; }
-            if ($h > 23) { $h = $h % 24; }
-            return $h;
+        if ($hour === null || $minute === null) {
+            $hour = 11;
+            $minute = 59;
         }
 
-        return 12;
+        if ($minute < 0) {
+            $minute = 0;
+        } elseif ($minute > 59) {
+            $hour += intdiv($minute, 60);
+            $minute = $minute % 60;
+        }
+        $hour = ($hour % 24 + 24) % 24;
+
+        $normalized = sprintf('%02d:%02d', $hour, $minute);
+        $totalMinutes = ($hour * 60) + $minute;
+        if ($totalMinutes >= 1380 || $totalMinutes < 60) {
+            $shi = 0;
+        } else {
+            $shi = (int) floor(($totalMinutes - 60) / 120) + 1;
+        }
+        $shi = max(0, min(11, $shi));
+
+        return [
+            'hour'           => $hour,
+            'minute'         => $minute,
+            'normalized'     => $normalized,
+            'shichen_index'  => $shi,
+        ];
+    }
+}
+
+if (!function_exists('bo_cp_parse_hour_slot')) {
+    function bo_cp_parse_hour_slot($slot): int {
+        $parsed = bo_cp_parse_birth_time($slot);
+        return (int) $parsed['hour'];
     }
 }
 
