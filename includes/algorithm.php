@@ -118,6 +118,8 @@ class Bo_City_Algorithm
      */
     public static function calculate_persona(array $in): array
     {
+        self::debug('INPUT', $in);
+
         $birth_date = $in['birth_date'] ?? null;
         $shi        = isset($in['shichen_index']) ? (int)$in['shichen_index'] : null;
         $lat        = isset($in['lat']) ? (float)$in['lat'] : null;
@@ -163,6 +165,14 @@ class Bo_City_Algorithm
 
         [$hour, $minute] = self::normalize_hour_minute($hour, $minute);
 
+        self::debug('TIME_RESOLVED', [
+            'raw_hour_slot' => $hour_slot,
+            'parsed_slot'   => $parsedSlot,
+            'hour'          => $hour,
+            'minute'        => $minute,
+            'shichen_index' => $shi,
+        ]);
+
         $civil = \DateTime::createFromFormat(
             'Y-m-d H:i:s',
             $birth_date . sprintf(' %02d:%02d:00', $hour, $minute),
@@ -186,16 +196,27 @@ class Bo_City_Algorithm
             $tst_local = clone $civil;
         }
 
+        self::debug('TIME_SCALES', [
+            'civil'     => $civil->format('Y-m-d H:i:s P'),
+            'utc'       => $utc_birth->format('Y-m-d H:i:s P'),
+            'tst_local' => $tst_local->format('Y-m-d H:i:s P'),
+            'has_coord' => $hasCoord ? 1 : 0,
+            'tz_id'     => $tz_id,
+        ]);
+
         // 5) 四柱计算
         $gz = self::calculate_bazi($civil, $tst_local, $utc_birth, $hasCoord);
+        self::debug('GANZHI', $gz);
 
         // 6) 身强弱
         $strength = self::analyze_strength($gz);
+        self::debug('STRENGTH', $strength);
 
         // 7) 人格 key
         $persona_key = self::build_persona_key($gz['day_gan'], $strength['label']);
+        self::debug('PERSONA_KEY', $persona_key);
 
-        return [
+        $result = [
             'normalized_hour_slot'  => sprintf('%02d:%02d', $hour, $minute),
             'shichen_index'         => $shi,
             'true_solar_time_local' => $tst_local->format('Y-m-d H:i:s'),
@@ -209,6 +230,10 @@ class Bo_City_Algorithm
             'persona_key' => $persona_key,
             'detail'      => $gz,
         ];
+
+        self::debug('OUTPUT', $result);
+
+        return $result;
     }
 
     /* ====================== 真太阳时计算（用于日/时判断） ====================== */
@@ -245,6 +270,19 @@ class Bo_City_Algorithm
 
         $tst = clone $civil;
         $tst->modify(sprintf('%+d seconds', (int)round($total_min * 60)));
+
+        self::debug('TST_COMPUTE', [
+            'civil'       => $civil->format('Y-m-d H:i:s P'),
+            'lat'         => $lat,
+            'lng'         => $lng,
+            'raw_offset'  => $raw_off,
+            'dst_offset'  => $dst_off,
+            'std_long'    => $std_long,
+            'EoT_min'     => round($EoT, 2),
+            'delta_long'  => round($delta_long, 2),
+            'total_min'   => round($total_min, 2),
+            'tst_local'   => $tst->format('Y-m-d H:i:s P'),
+        ]);
 
         return $tst;
     }
@@ -362,7 +400,7 @@ class Bo_City_Algorithm
         // ===== 时柱（真太阳时 / 或退回民用）=====
         list($hourGanIdx, $hourZhiIdx) = self::hour_ganzhi($tstLocal, $dayGanIdx);
 
-        return [
+        $result = [
             'year_gan'  => self::$GAN[$yearGanIdx],
             'year_zhi'  => self::$ZHI[$yearZhiIdx],
             'month_gan' => self::$GAN[$monthGanIdx],
@@ -372,6 +410,22 @@ class Bo_City_Algorithm
             'hour_gan'  => self::$GAN[$hourGanIdx],
             'hour_zhi'  => self::$ZHI[$hourZhiIdx],
         ];
+
+        self::debug('GANZHI_INDEX', [
+            'year_index'  => $yearIndex,
+            'year_gan'    => $yearGanIdx,
+            'year_zhi'    => $yearZhiIdx,
+            'term_index'  => $termIdx,
+            'month_gan'   => $monthGanIdx,
+            'month_zhi'   => $monthZhiIdx,
+            'day_gan'     => $dayGanIdx,
+            'day_zhi'     => $dayZhiIdx,
+            'hour_gan'    => $hourGanIdx,
+            'hour_zhi'    => $hourZhiIdx,
+            'has_coord'   => $hasCoord ? 1 : 0,
+        ]);
+
+        return $result;
     }
 
     /**
@@ -480,10 +534,18 @@ class Bo_City_Algorithm
 
         $label = ($scoreSum >= 50.0) ? '身强' : '身弱';
 
-        return [
+        $result = [
             'label' => $label,
             'score' => round($scoreSum, 2),
         ];
+
+        self::debug('STRENGTH_DETAIL', [
+            'day_gan' => $dayGan,
+            'score'   => $scoreSum,
+            'label'   => $label,
+        ]);
+
+        return $result;
     }
 
     /* =========================== 人格映射 =========================== */
@@ -556,6 +618,29 @@ class Bo_City_Algorithm
     {
         [$hour, $minute] = self::normalize_hour_minute(11, 59);
         return [$hour, $minute, self::shichen_index_from_time($hour, $minute)];
+    }
+
+    private static function debug(string $label, $context = null): void
+    {
+        if (!defined('BO_CP_DEBUG_ALGO') || !BO_CP_DEBUG_ALGO) {
+            return;
+        }
+
+        $prefix = 'R1D1-' . $label . ' [Bo_City_Algorithm] ';
+
+        if ($context instanceof \DateTimeInterface) {
+            $context = $context->format('Y-m-d H:i:s P');
+        }
+
+        if (is_array($context) || is_object($context)) {
+            $encoded = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } elseif ($context === null) {
+            $encoded = '';
+        } else {
+            $encoded = (string) $context;
+        }
+
+        error_log($prefix . $encoded);
     }
 
     private static function parse_hour_slot($slot): ?array
