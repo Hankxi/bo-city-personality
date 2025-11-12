@@ -5,6 +5,8 @@ class BO_CP_Shortcodes {
     public static function init() {
         add_shortcode('city_persona_form', [__CLASS__, 'form']);
         add_shortcode('city_persona_section', [__CLASS__, 'section']);
+        add_shortcode('bo-cp-section-overview', [__CLASS__, 'section_overview']);
+        add_shortcode('bo-cp-overview', [__CLASS__, 'section_overview']);
         add_filter('the_content', [__CLASS__, 'expand_section_shortcodes'], 9);
         add_filter('widget_text_content', [__CLASS__, 'expand_section_shortcodes'], 9);
         add_filter('widget_text', [__CLASS__, 'expand_section_shortcodes'], 9);
@@ -143,6 +145,20 @@ class BO_CP_Shortcodes {
         </div>
         <?php
         return ob_get_clean();
+    }
+
+    public static function section_overview($atts = [], $content = '', $tag = '') {
+        if (!is_array($atts)) {
+            $atts = [];
+        }
+
+        $normalized_atts = array_change_key_case($atts, CASE_LOWER);
+        $normalized_atts['key'] = 'overview';
+        if (!isset($normalized_atts['persona'])) {
+            $normalized_atts['persona'] = '';
+        }
+
+        return self::section($normalized_atts, $content, $tag ?: 'bo-cp-section-overview');
     }
 
     public static function section($atts = [], $content = '', $tag = '') {
