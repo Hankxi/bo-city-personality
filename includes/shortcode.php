@@ -138,8 +138,7 @@ class BO_CP_Shortcodes {
           </form>
 
           <div id="bo-cp-result" style="display:none;">
-            <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-persona-name"></span></div>
-            <div id="bo-cp-overview"></div>
+            <div class="tagline"><span id="bo-cp-persona-name"></span></div>
           </div>
         </div>
         <?php

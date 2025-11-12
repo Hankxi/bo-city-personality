@@ -1282,24 +1282,38 @@
       return;
     }
 
-    // show persona + overview
+    // show persona name
     $('#bo-cp-result').style.display = 'block';
     const displayTitle = data.display_title || data.displayTitle || data.name || data.persona_key || '';
     $('#bo-cp-persona-name').textContent = displayTitle;
-    $('#bo-cp-overview').innerHTML = data.overview_html || '<p>(No overview)</p>';
+    const state = ensureState();
+    state.result_id = data.result_id;
+    state.name = data.persona_key || data.name || '';
+    state.persona_key = data.persona_key || data.name || '';
+    state.display_title = displayTitle;
+    state.token = data.token;
+    state.lang = data.lang ? (normalizeLang(data.lang) || lang) : lang;
 
-    // cache for later section loads
-    window.__boCP = {
-      result_id: data.result_id,
-      name: data.persona_key || data.name,
-      persona_key: data.persona_key || data.name,
-      display_title: displayTitle,
-      token: data.token,
-      lang: data.lang ? normalizeLang(data.lang) || lang : lang
+    const personaCacheKey = canonKey(state.persona_key || '');
+    const normalizedStateLang = (state.lang || 'en').toLowerCase();
+    if (!state.sectionsCache[personaCacheKey]) {
+      state.sectionsCache[personaCacheKey] = {};
+    }
+    if (!state.sectionsCache[personaCacheKey][normalizedStateLang]) {
+      state.sectionsCache[personaCacheKey][normalizedStateLang] = {};
+    }
+    state.sectionsCache[personaCacheKey][normalizedStateLang].overview = {
+      title: data.overview_title || '',
+      content_html: data.overview_html || ''
     };
-    logDebug('Cached persona result', window.__boCP);
-    ensureState();
-    updateDynamicSections(window.__boCP);
+
+    logDebug('Cached persona result', {
+      persona: state.persona_key,
+      result_id: state.result_id,
+      lang: state.lang
+    });
+
+    updateDynamicSections(state);
   });
 
   logDebug('bo-cp form script initialized');
