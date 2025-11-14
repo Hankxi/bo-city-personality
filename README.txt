@@ -12,7 +12,7 @@ Key features
 - Persona content fetched on-demand; default library via CPT `city_persona`, fallback to /data/*.php
 
 Endpoints
-- GET /wp-json/bo/v1/geo?city=...&country=...&birth_date=YYYY-MM-DD&hour_slot=13-15&email=&person_name=&gender=&place_id=
+- GET /wp-json/bo/v1/geo?city=...&country=...&birth_date=YYYY-MM-DD&hour_slot=HH:MM&email=&person_name=&gender=&place_id=
 - GET /wp-json/bo/v1/result?result_id=...&name=SUN_TIGER&section=overview&token=...
 
 Setup

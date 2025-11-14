@@ -683,12 +683,29 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
         return $tz;
     }
 
-    $hour = bo_cp_parse_hour_slot($hour_slot);
+    $time_parts = bo_cp_parse_birth_time($hour_slot);
+    $normalized_hour_slot = (string) ($time_parts['normalized'] ?? '11:59');
+    $shi_index = isset($time_parts['shichen_index']) ? (int) $time_parts['shichen_index'] : 6;
     $tz_id = (string) ($tz['timeZoneId'] ?? 'UTC');
     $raw_off = intval($tz['rawOffset'] ?? 0);
     $dst_off = intval($tz['dstOffset'] ?? 0);
 
-    $persona_key = bo_cp_canon_key(Lolo_Algorithm::calculate_persona($lat, $lng, $birth_date, $tz_id, $raw_off, $dst_off, $hour));
+    $algo_result = Bo_City_Algorithm::calculate_persona([
+        'birth_date'    => $birth_date,
+        'hour_slot'     => $normalized_hour_slot,
+        'shichen_index' => $shi_index,
+        'lat'           => $lat,
+        'lng'           => $lng,
+        'time_zone_id'  => $tz_id,
+        'raw_offset'    => $raw_off,
+        'dst_offset'    => $dst_off,
+    ]);
+
+    if (!is_array($algo_result) || isset($algo_result['error'])) {
+        return new WP_Error('server_error', 'Failed to calculate persona.', ['status' => 500]);
+    }
+
+    $persona_key = bo_cp_canon_key($algo_result['persona_key'] ?? '');
     $display_title = bo_cp_persona_display_title($persona_key, $lang);
     $sections = bo_cp_load_sections($persona_key, $lang);
     $overview = $sections['overview'] ?? ['title' => '', 'content' => ''];
@@ -700,7 +717,7 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
         'country_code'=> $place['country_code'] ?? '',
         'city'        => $place['city'],
         'birth_date'  => $birth_date,
-        'hour_slot'   => $hour_slot,
+        'hour_slot'   => $normalized_hour_slot,
         'lat'         => $lat,
         'lng'         => $lng,
         'tz_id'       => $tz_id,
@@ -719,6 +736,7 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
         'formatted_address' => $place['formatted_address'],
         'timezone_raw'      => $tz,
         'timezone_source'   => $tz['source'] ?? 'google',
+        'algorithm_result'  => $algo_result,
     ]);
 
     if ($result_id <= 0) {
@@ -737,6 +755,8 @@ function bo_cp_rest_geo_callback(WP_REST_Request $req) {
         'overview_title' => (string) ($overview['title'] ?? ''),
         'overview_html'  => (string) ($overview['content'] ?? ''),
         'sections'       => array_keys($sections),
+        'hour_slot'      => $algo_result['normalized_hour_slot'] ?? $normalized_hour_slot,
+        'shichen_index'  => $algo_result['shichen_index'] ?? $shi_index,
         'place'          => $place,
     ];
 }

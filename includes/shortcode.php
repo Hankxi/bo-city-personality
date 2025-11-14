@@ -5,6 +5,8 @@ class BO_CP_Shortcodes {
     public static function init() {
         add_shortcode('city_persona_form', [__CLASS__, 'form']);
         add_shortcode('city_persona_section', [__CLASS__, 'section']);
+        add_shortcode('bo-cp-section-overview', [__CLASS__, 'section_overview']);
+        add_shortcode('bo-cp-overview', [__CLASS__, 'section_overview']);
         add_filter('the_content', [__CLASS__, 'expand_section_shortcodes'], 9);
         add_filter('widget_text_content', [__CLASS__, 'expand_section_shortcodes'], 9);
         add_filter('widget_text', [__CLASS__, 'expand_section_shortcodes'], 9);
@@ -12,8 +14,8 @@ class BO_CP_Shortcodes {
     }
 
     public static function assets() {
-        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.1.0', true);
-        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.1.0');
+        wp_register_script('bo-cp-form', plugins_url('../assets/form.js', __FILE__), [], '1.1.1', true);
+        wp_register_style('bo-cp-form', plugins_url('../assets/form.css', __FILE__), [], '1.1.1');
     }
 
     public static function expand_section_shortcodes($content) {
@@ -63,21 +65,10 @@ class BO_CP_Shortcodes {
         $manual_entry_label = $is_chinese ? '手动输入' : __('Manual Entry', 'bo-city-personality');
         $manual_picker_label = $is_chinese ? '使用日期选择' : __('Use Date Picker', 'bo-city-personality');
 
-        $hour_slot_label = $is_chinese ? '时辰' : __('Hour Slot', 'bo-city-personality');
-        $hour_slots = [
-            '23-01' => $is_chinese ? '23:00-01:00（子时）' : __('23:00-01:00 (Zi Hour)', 'bo-city-personality'),
-            '01-03' => $is_chinese ? '01:00-03:00（丑时）' : __('01:00-03:00 (Chou Hour)', 'bo-city-personality'),
-            '03-05' => $is_chinese ? '03:00-05:00（寅时）' : __('03:00-05:00 (Yin Hour)', 'bo-city-personality'),
-            '05-07' => $is_chinese ? '05:00-07:00（卯时）' : __('05:00-07:00 (Mao Hour)', 'bo-city-personality'),
-            '07-09' => $is_chinese ? '07:00-09:00（辰时）' : __('07:00-09:00 (Chen Hour)', 'bo-city-personality'),
-            '09-11' => $is_chinese ? '09:00-11:00（巳时）' : __('09:00-11:00 (Si Hour)', 'bo-city-personality'),
-            '11-13' => $is_chinese ? '11:00-13:00（午时）' : __('11:00-13:00 (Wu Hour)', 'bo-city-personality'),
-            '13-15' => $is_chinese ? '13:00-15:00（未时）' : __('13:00-15:00 (Wei Hour)', 'bo-city-personality'),
-            '15-17' => $is_chinese ? '15:00-17:00（申时）' : __('15:00-17:00 (Shen Hour)', 'bo-city-personality'),
-            '17-19' => $is_chinese ? '17:00-19:00（酉时）' : __('17:00-19:00 (You Hour)', 'bo-city-personality'),
-            '19-21' => $is_chinese ? '19:00-21:00（戌时）' : __('19:00-21:00 (Xu Hour)', 'bo-city-personality'),
-            '21-23' => $is_chinese ? '21:00-23:00（亥时）' : __('21:00-23:00 (Hai Hour)', 'bo-city-personality'),
-        ];
+        $birth_date_label = $is_chinese ? '出生日期' : __('Birth Date', 'bo-city-personality');
+
+        $hour_slot_label = $is_chinese ? '出生时间（24小时制）' : __('Birth Time (24-hour)', 'bo-city-personality');
+        $hour_slot_label = apply_filters('bo_cp_birth_time_label', $hour_slot_label, $lang_key);
 
         $gender_label = $is_chinese ? '性别' : __('Gender', 'bo-city-personality');
         $gender_options = [
@@ -115,20 +106,17 @@ class BO_CP_Shortcodes {
               </div>
             </div>
             <div class="row">
-              <label for="bo-cp-birth-date"><?php esc_html_e('Birth Date', 'bo-city-personality'); ?></label>
+              <label for="bo-cp-birth-date"><?php echo esc_html($birth_date_label); ?></label>
               <div class="bo-cp-date">
                 <input type="date" id="bo-cp-birth-date" name="birth_date" value="2000-01-01" required data-date-input>
                 <button type="button" class="bo-cp-date__toggle" data-date-toggle data-picker-label="<?php echo esc_attr($manual_picker_label); ?>" data-manual-label="<?php echo esc_attr($manual_entry_label); ?>"><?php echo esc_html($manual_entry_label); ?></button>
               </div>
             </div>
             <div class="row">
-              <label for="bo-cp-hour-slot"><?php echo esc_html($hour_slot_label); ?></label>
-              <select id="bo-cp-hour-slot" name="hour_slot">
-                <option value=""><?php echo esc_html($is_chinese ? '请选择（可选）' : __('Select (optional)', 'bo-city-personality')); ?></option>
-                <?php foreach ($hour_slots as $value => $label) : ?>
-                  <option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option>
-                <?php endforeach; ?>
-              </select>
+              <label for="bo-cp-birth-time"><?php echo esc_html($hour_slot_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
+              <div class="bo-cp-date bo-cp-time">
+                <input type="time" id="bo-cp-birth-time" name="hour_slot" value="11:59" step="60">
+              </div>
             </div>
             <div class="row">
               <label for="bo-cp-person-name"><?php echo esc_html($name_label); ?> <span class="optional-badge"><?php echo esc_html($optional_label); ?></span></label>
@@ -152,12 +140,25 @@ class BO_CP_Shortcodes {
           </form>
 
           <div id="bo-cp-result" style="display:none;">
-            <div class="tagline"><strong>Persona:</strong> <span id="bo-cp-persona-name"></span></div>
-            <div id="bo-cp-overview"></div>
+            <div class="tagline"><span id="bo-cp-persona-name"></span></div>
           </div>
         </div>
         <?php
         return ob_get_clean();
+    }
+
+    public static function section_overview($atts = [], $content = '', $tag = '') {
+        if (!is_array($atts)) {
+            $atts = [];
+        }
+
+        $normalized_atts = array_change_key_case($atts, CASE_LOWER);
+        $normalized_atts['key'] = 'overview';
+        if (!isset($normalized_atts['persona'])) {
+            $normalized_atts['persona'] = '';
+        }
+
+        return self::section($normalized_atts, $content, $tag ?: 'bo-cp-section-overview');
     }
 
     public static function section($atts = [], $content = '', $tag = '') {

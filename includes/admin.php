@@ -347,7 +347,7 @@ if (is_admin()) {
                 'lang'        => __('Language', 'bo-city-personality'),
                 'location'    => __('Location', 'bo-city-personality'),
                 'birth_date'  => __('Birth Date', 'bo-city-personality'),
-                'hour_slot'   => __('Hour Slot', 'bo-city-personality'),
+                'hour_slot'   => __('Birth Time', 'bo-city-personality'),
                 'person_name' => __('Name', 'bo-city-personality'),
                 'gender'      => __('Gender', 'bo-city-personality'),
                 'email'       => __('Email', 'bo-city-personality'),
@@ -463,6 +463,14 @@ if (is_admin()) {
 
             if ($slot === '') {
                 $slot_html = '&mdash;';
+            } elseif (preg_match('/^(\d{1,2}):([0-5]\d)$/', $slot, $m)) {
+                $hour = max(0, min(23, intval($m[1])));
+                $minute = intval($m[2]);
+                $slot_html = esc_html(sprintf('%02d:%02d', $hour, $minute));
+            } elseif (preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $slot, $m)) {
+                $from = max(0, min(23, intval($m[1])));
+                $to = max(0, min(23, intval($m[2])));
+                $slot_html = esc_html(sprintf('%02d:00 – %02d:00', $from, $to));
             } else {
                 $slot_html = esc_html($slot);
             }
@@ -745,7 +753,7 @@ add_action('admin_post_bo_cp_export_results', function () {
         __('Latitude', 'bo-city-personality'),
         __('Longitude', 'bo-city-personality'),
         __('Birth Date', 'bo-city-personality'),
-        __('Hour Slot', 'bo-city-personality'),
+        __('Birth Time', 'bo-city-personality'),
         __('Timezone ID', 'bo-city-personality'),
         __('Raw Offset (s)', 'bo-city-personality'),
         __('DST Offset (s)', 'bo-city-personality'),

@@ -376,21 +376,6 @@ if (!function_exists('bo_cp_normalize_country_input')) {
 if (!function_exists('bo_cp_form_strings')) {
     function bo_cp_form_strings(string $lang = 'en'): array {
         $lang = $lang ?: 'en';
-        $hourSlots = [
-            ''       => 'Not sure',
-            '23-01'  => '23:00 – 01:00',
-            '01-03'  => '01:00 – 03:00',
-            '03-05'  => '03:00 – 05:00',
-            '05-07'  => '05:00 – 07:00',
-            '07-09'  => '07:00 – 09:00',
-            '09-11'  => '09:00 – 11:00',
-            '11-13'  => '11:00 – 13:00',
-            '13-15'  => '13:00 – 15:00',
-            '15-17'  => '15:00 – 17:00',
-            '17-19'  => '17:00 – 19:00',
-            '19-21'  => '19:00 – 21:00',
-            '21-23'  => '21:00 – 23:00',
-        ];
         $genderOptions = [
             ''        => 'Prefer not to say',
             'female'  => 'Female',
@@ -411,9 +396,9 @@ if (!function_exists('bo_cp_form_strings')) {
             'birth_placeholder'    => 'YYYY-MM-DD',
             'birth_toggle'         => 'Switch to manual entry',
             'birth_toggle_back'    => 'Switch to calendar',
-            'hour_label'           => 'Birth hour',
-            'hour_placeholder'     => 'Select a 2-hour slot (optional)',
-            'hour_slots'           => $hourSlots,
+            'hour_label'           => 'Birth time (24-hour)',
+            'hour_placeholder'     => 'HH:MM',
+            'hour_slots'           => [],
             'name_label'           => 'Name (optional)',
             'name_placeholder'     => 'Your name',
             'gender_label'         => 'Gender',
@@ -434,21 +419,6 @@ if (!function_exists('bo_cp_form_strings')) {
         ];
 
         if ($lang === 'zh') {
-            $hourSlots = [
-                ''       => '不确定',
-                '23-01'  => '23:00 – 01:00',
-                '01-03'  => '01:00 – 03:00',
-                '03-05'  => '03:00 – 05:00',
-                '05-07'  => '05:00 – 07:00',
-                '07-09'  => '07:00 – 09:00',
-                '09-11'  => '09:00 – 11:00',
-                '11-13'  => '11:00 – 13:00',
-                '13-15'  => '13:00 – 15:00',
-                '15-17'  => '15:00 – 17:00',
-                '17-19'  => '17:00 – 19:00',
-                '19-21'  => '19:00 – 21:00',
-                '21-23'  => '21:00 – 23:00',
-            ];
             $genderOptions = [
                 ''        => '不透露',
                 'female'  => '女性',
@@ -468,8 +438,8 @@ if (!function_exists('bo_cp_form_strings')) {
                 'birth_placeholder'    => 'YYYY-MM-DD',
                 'birth_toggle'         => '切换到手动输入',
                 'birth_toggle_back'    => '切换到日历',
-                'hour_label'           => '出生时段',
-                'hour_placeholder'     => '选择 2 小时时段（可选）',
+                'hour_label'           => '出生时间（24小时制）',
+                'hour_placeholder'     => 'HH:MM',
                 'name_label'           => '姓名（可选）',
                 'name_placeholder'     => '你的名字',
                 'gender_label'         => '性别',
@@ -487,10 +457,8 @@ if (!function_exists('bo_cp_form_strings')) {
                 'compute_first'        => '请先计算。',
                 'generic_error'        => '出错了，请稍后再试。',
             ]);
-            $strings['hour_slots'] = $hourSlots;
             $strings['gender_options'] = $genderOptions;
         } else {
-            $strings['hour_slots'] = $hourSlots;
             $strings['gender_options'] = $genderOptions;
         }
 
@@ -744,25 +712,68 @@ if (!function_exists('bo_cp_upsert_persona_post')) {
     }
 }
 
-if (!function_exists('bo_cp_parse_hour_slot')) {
-    function bo_cp_parse_hour_slot($slot): int {
+if (!function_exists('bo_cp_parse_birth_time')) {
+    function bo_cp_parse_birth_time($slot): array {
         $slot = trim((string)$slot);
+        $hour = null;
+        $minute = null;
+
         if ($slot === '') {
-            return 12;
-        }
-        if (preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $slot, $m)) {
+            $hour = 11;
+            $minute = 59;
+        } elseif (preg_match('/^(\d{1,2}):([0-5]\d)$/', $slot, $m)) {
+            $hour = intval($m[1]);
+            $minute = intval($m[2]);
+        } elseif (preg_match('/^(\d{1,2})\s*-\s*(\d{1,2})$/', $slot, $m)) {
             $a = max(0, min(23, intval($m[1])));
             $b = max(0, min(23, intval($m[2])));
-            $mid = (int) round(($a + $b) / 2);
-            return max(0, min(23, $mid));
+            $avg = ($a + $b) / 2.0;
+            $hour = (int) floor($avg);
+            $minute = (int) round(($avg - $hour) * 60);
+            if ($minute >= 60) {
+                $minute -= 60;
+                $hour += 1;
+            }
+        } elseif (preg_match('/^(\d{1,2})$/', $slot, $m)) {
+            $hour = intval($m[1]);
+            $minute = 0;
         }
-        if (preg_match('/^(\d{1,2})$/', $slot, $m)) {
-            $h = intval($m[1]);
-            if ($h < 0) { $h = 0; }
-            if ($h > 23) { $h = $h % 24; }
-            return $h;
+
+        if ($hour === null || $minute === null) {
+            $hour = 11;
+            $minute = 59;
         }
-        return 12;
+
+        if ($minute < 0) {
+            $minute = 0;
+        } elseif ($minute > 59) {
+            $hour += intdiv($minute, 60);
+            $minute = $minute % 60;
+        }
+        $hour = ($hour % 24 + 24) % 24;
+
+        $normalized = sprintf('%02d:%02d', $hour, $minute);
+        $totalMinutes = ($hour * 60) + $minute;
+        if ($totalMinutes >= 1380 || $totalMinutes < 60) {
+            $shi = 0;
+        } else {
+            $shi = (int) floor(($totalMinutes - 60) / 120) + 1;
+        }
+        $shi = max(0, min(11, $shi));
+
+        return [
+            'hour'           => $hour,
+            'minute'         => $minute,
+            'normalized'     => $normalized,
+            'shichen_index'  => $shi,
+        ];
+    }
+}
+
+if (!function_exists('bo_cp_parse_hour_slot')) {
+    function bo_cp_parse_hour_slot($slot): int {
+        $parsed = bo_cp_parse_birth_time($slot);
+        return (int) $parsed['hour'];
     }
 }
 
